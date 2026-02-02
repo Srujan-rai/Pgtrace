@@ -1,4 +1,4 @@
-![Pgtrace Logo](https://raw.githubusercontent.com/Srujan-rai/Pgtrace/main/assets/image.png)
+![Pgtrace Logo](https://raw.githubusercontent.com/Srujan-rai/Pgtrace/main/assets/logo.png)
 
 # Pgtrace
 
