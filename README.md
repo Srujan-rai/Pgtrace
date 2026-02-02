@@ -1,4 +1,4 @@
-![Pgtrace Logo](assets/logo.png)
+<img src="assets/logo.png" alt="Pgtrace Logo" width="200">
 
 # Pgtrace
 
