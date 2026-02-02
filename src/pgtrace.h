@@ -1,0 +1,34 @@
+#pragma once
+
+#include <postgres.h>
+#include <fmgr.h>
+#include <utils/timestamp.h>
+#include <storage/lwlock.h>
+
+#define PGTRACE_BUCKETS 6
+
+typedef struct PgTraceMetrics
+{
+    uint64 queries_total;
+    uint64 queries_failed;
+    uint64 slow_queries;
+    uint64 latency_buckets[PGTRACE_BUCKETS];
+    TimestampTz start_time;
+    LWLock lock;
+} PgTraceMetrics;
+
+extern PgTraceMetrics *pgtrace_metrics;
+
+extern bool pgtrace_enabled;
+extern int pgtrace_slow_query_ms;
+/* init functions */
+void pgtrace_init_guc(void);
+void pgtrace_shmem_request(void);
+void pgtrace_shmem_startup(void);
+void pgtrace_init_hooks(void);
+void pgtrace_remove_hooks(void);
+
+/* metrics */
+void pgtrace_record_query(long duration_ms, bool failed);
+PGDLLEXPORT Datum pgtrace_internal_metrics(PG_FUNCTION_ARGS);
+PGDLLEXPORT Datum pgtrace_internal_latency(PG_FUNCTION_ARGS);

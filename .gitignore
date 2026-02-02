@@ -1,0 +1,27 @@
+# Build artifacts
+*.o
+*.a
+*.so
+*.bc
+*.index.bc
+*.lo
+*.la
+*.dylib
+
+# Extension build outputs
+/pgtrace.so
+/libpgtrace.a
+/libpgtrace.pc
+/src/*.o
+/src/*.bc
+
+# Editor/OS files
+.DS_Store
+*.swp
+*.swo
+*.tmp
+.idea/
+.vscode/
+
+# Logs
+*.log
