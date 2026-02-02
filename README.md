@@ -1,3 +1,5 @@
+![Pgtrace Logo](https://raw.githubusercontent.com/Srujan-rai/Pgtrace/main/docs/logo.png)
+
 # Pgtrace
 
 Lightweight PostgreSQL extension for query tracing and latency metrics.
