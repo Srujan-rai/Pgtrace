@@ -1,7 +1,5 @@
 <img src="assets/logo.png" alt="Pgtrace Logo" width="200">
 
-# Pgtrace
-
 Lightweight PostgreSQL extension for query tracing and latency metrics.
 
 ## Overview
