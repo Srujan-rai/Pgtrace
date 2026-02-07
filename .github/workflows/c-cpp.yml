@@ -20,6 +20,8 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
           build-essential \
+          clang-19 \
+          llvm-19 \
           postgresql-16 \
           postgresql-server-dev-16
 
