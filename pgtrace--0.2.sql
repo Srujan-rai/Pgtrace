@@ -44,3 +44,49 @@ LANGUAGE C STRICT;
 CREATE VIEW pgtrace_query_stats AS
 SELECT * FROM pgtrace_internal_query_stats()
 ORDER BY total_time_ms DESC;
+
+/* Slow query view */
+
+CREATE FUNCTION pgtrace_internal_slow_queries()
+RETURNS TABLE (
+  fingerprint bigint,
+  duration_ms double precision,
+  query_time timestamptz,
+  application_name text,
+  db_user text,
+  rows_processed bigint
+)
+AS 'MODULE_PATHNAME', 'pgtrace_internal_slow_queries'
+LANGUAGE C STRICT;
+
+CREATE VIEW pgtrace_slow_queries AS
+SELECT * FROM pgtrace_internal_slow_queries()
+ORDER BY duration_ms DESC;
+
+/* Management functions */
+
+CREATE FUNCTION pgtrace_reset()
+RETURNS void
+AS 'MODULE_PATHNAME', 'pgtrace_reset'
+LANGUAGE C STRICT;
+
+CREATE FUNCTION pgtrace_query_count()
+RETURNS bigint
+AS 'MODULE_PATHNAME', 'pgtrace_query_count'
+LANGUAGE C STRICT;
+
+/* Error tracking view */
+
+CREATE FUNCTION pgtrace_internal_failing_queries()
+RETURNS TABLE (
+  fingerprint bigint,
+  error_code text,
+  error_count bigint,
+  last_error_at timestamptz
+)
+AS 'MODULE_PATHNAME', 'pgtrace_internal_failing_queries'
+LANGUAGE C STRICT;
+
+CREATE VIEW pgtrace_failing_queries AS
+SELECT * FROM pgtrace_internal_failing_queries()
+ORDER BY error_count DESC;

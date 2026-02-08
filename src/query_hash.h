@@ -43,3 +43,4 @@ void pgtrace_hash_startup(void);
 void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed);
 QueryStats *pgtrace_hash_get(uint64 fingerprint);
 uint64 pgtrace_hash_count(void);
+void pgtrace_hash_reset(void);

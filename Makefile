@@ -8,7 +8,10 @@ OBJS = \
     src/shmem.o \
     src/guc.o \
     src/fingerprint.o \
-    src/query_hash.o
+    src/query_hash.o \
+    src/slow_query.o \
+    src/error_track.o \
+    src/error_hook.o
 
 DATA = pgtrace--0.1.sql pgtrace--0.2.sql pgtrace--0.1--0.2.sql
 

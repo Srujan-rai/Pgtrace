@@ -2,6 +2,8 @@
 #include <executor/executor.h>
 #include <utils/timestamp.h>
 #include <tcop/utility.h>
+#include <miscadmin.h>
+#include <catalog/pg_authid.h>
 #include "pgtrace.h"
 
 static ExecutorStart_hook_type prev_ExecutorStart = NULL;
@@ -20,6 +22,9 @@ pgtrace_ExecutorStart(QueryDesc *queryDesc, int eflags)
         current_fingerprint = pgtrace_compute_fingerprint(queryDesc->sourceText);
     else
         current_fingerprint = 0;
+
+    /* Set fingerprint for error tracking */
+    pgtrace_set_current_fingerprint(current_fingerprint);
 
     if (prev_ExecutorStart)
         prev_ExecutorStart(queryDesc, eflags);
@@ -45,7 +50,20 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
 
     /* V2: Per-query tracking */
     if (current_fingerprint != 0)
+    {
         pgtrace_hash_record(current_fingerprint, (double)ms, false);
+
+        /* V2: Record slow queries */
+        if (ms > pgtrace_slow_query_ms)
+        {
+            const char *app_name = application_name ? application_name : "";
+            const char *user_name = GetUserNameFromId(GetUserId(), false);
+            int64 rows = (queryDesc->estate && queryDesc->estate->es_processed) ? queryDesc->estate->es_processed : 0;
+
+            pgtrace_slow_query_record(current_fingerprint, (double)ms,
+                                      app_name, user_name, rows);
+        }
+    }
 
     if (prev_ExecutorEnd)
         prev_ExecutorEnd(queryDesc);

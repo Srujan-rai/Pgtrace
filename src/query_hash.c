@@ -175,3 +175,18 @@ pgtrace_hash_count(void)
 
     return count;
 }
+
+/*
+ * Reset all query stats in hash table.
+ */
+void pgtrace_hash_reset(void)
+{
+    if (!pgtrace_query_hash)
+        return;
+
+    LWLockAcquire(&pgtrace_query_hash->lock, LW_EXCLUSIVE);
+    memset(pgtrace_query_hash->entries, 0, sizeof(pgtrace_query_hash->entries));
+    pgtrace_query_hash->num_entries = 0;
+    pgtrace_query_hash->collisions = 0;
+    LWLockRelease(&pgtrace_query_hash->lock);
+}

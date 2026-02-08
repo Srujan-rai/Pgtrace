@@ -65,6 +65,54 @@ Columns:
 
 Results ordered by `total_time_ms DESC` to show slowest queries first.
 
+### Slow Queries
+
+Capture recent worst-performing queries for actionable optimization. Stores:
+
+```sql
+SELECT * FROM pgtrace_slow_queries
+ORDER BY duration_ms DESC
+LIMIT 20;
+```
+
+Columns:
+
+- `fingerprint` (bigint) - Query identifier
+- `duration_ms` (double precision) - Execution time
+- `query_time` (timestamptz) - When query ran
+- `application_name` (text) - App that issued query
+- `db_user` (text) - Database user
+- `rows_processed` (bigint) - Rows returned/affected
+
+### Management Functions
+
+```sql
+-- Get count of currently tracked queries
+SELECT pgtrace_query_count();
+
+-- Clear all query stats
+SELECT pgtrace_reset();
+```
+
+### Failing Queries (Error Tracking)
+
+Identify which queries are failing and why. Tracks SQLSTATE codes for every error:
+
+```sql
+SELECT * FROM pgtrace_failing_queries
+ORDER BY error_count DESC
+LIMIT 20;
+```
+
+Columns:
+
+- `fingerprint` (bigint) - Query identifier
+- `error_code` (text) - SQLSTATE (e.g., "23505" for unique violation)
+- `error_count` (bigint) - Number of failures
+- `last_error_at` (timestamptz) - Last failure timestamp
+
+Directly answers: "Which query keeps breaking and why?"
+
 ### Core Metrics
 
 ```sql

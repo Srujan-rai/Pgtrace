@@ -11,6 +11,12 @@ void pgtrace_shmem_request(void)
 
     /* V2: Request space for query hash table */
     pgtrace_hash_request_shmem();
+
+    /* V2: Request space for slow query ring buffer */
+    pgtrace_slow_query_request_shmem();
+
+    /* V2: Request space for error tracking buffer */
+    pgtrace_error_request_shmem();
 }
 
 void pgtrace_shmem_startup(void)
@@ -34,4 +40,10 @@ void pgtrace_shmem_startup(void)
 
     /* V2: Initialize query hash table */
     pgtrace_hash_startup();
+
+    /* V2: Initialize slow query buffer */
+    pgtrace_slow_query_startup();
+
+    /* V2: Initialize error tracking buffer */
+    pgtrace_error_startup();
 }

@@ -227,3 +227,196 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
 
     SRF_RETURN_DONE(funcctx);
 }
+
+/*
+ * pgtrace_query_count()
+ * Returns the number of unique queries being tracked.
+ */
+PG_FUNCTION_INFO_V1(pgtrace_query_count);
+
+PGDLLEXPORT Datum pgtrace_query_count(PG_FUNCTION_ARGS)
+{
+    uint64 count = pgtrace_hash_count();
+    PG_RETURN_INT64(count);
+}
+
+/*
+ * pgtrace_reset()
+ * Clears all query stats in the hash table.
+ */
+PG_FUNCTION_INFO_V1(pgtrace_reset);
+
+PGDLLEXPORT Datum pgtrace_reset(PG_FUNCTION_ARGS)
+{
+    pgtrace_hash_reset();
+    PG_RETURN_VOID();
+}
+
+/*
+ * pgtrace_internal_failing_queries()
+ * Returns queries that failed with error tracking.
+ */
+PG_FUNCTION_INFO_V1(pgtrace_internal_failing_queries);
+
+PGDLLEXPORT Datum pgtrace_internal_failing_queries(PG_FUNCTION_ARGS)
+{
+    FuncCallContext *funcctx;
+    ErrorTrackEntry *snapshot;
+    uint32 *num_entries_ptr;
+
+    if (SRF_IS_FIRSTCALL())
+    {
+        MemoryContext oldcontext;
+        TupleDesc tupdesc;
+        uint32 i, j, count;
+
+        funcctx = SRF_FIRSTCALL_INIT();
+        oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+        if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                     errmsg("pgtrace_internal_failing_queries must be called in a context that accepts a record")));
+
+        funcctx->tuple_desc = BlessTupleDesc(tupdesc);
+
+        /* Take snapshot of error buffer under lock */
+        count = 0;
+        snapshot = palloc0(PGTRACE_ERROR_BUFFER_SIZE * sizeof(ErrorTrackEntry));
+
+        if (pgtrace_error_buffer)
+        {
+            LWLockAcquire(&pgtrace_error_buffer->lock, LW_SHARED);
+
+            for (i = 0, j = 0; i < pgtrace_error_buffer->num_entries; i++)
+            {
+                ErrorTrackEntry *entry = &pgtrace_error_buffer->entries[i];
+                if (entry->valid)
+                {
+                    memcpy(&snapshot[j], entry, sizeof(ErrorTrackEntry));
+                    j++;
+                    count++;
+                }
+            }
+
+            LWLockRelease(&pgtrace_error_buffer->lock);
+        }
+
+        funcctx->user_fctx = snapshot;
+        num_entries_ptr = palloc(sizeof(uint32));
+        *num_entries_ptr = count;
+        funcctx->max_calls = count;
+        funcctx->attinmeta = (AttInMetadata *)num_entries_ptr;
+
+        MemoryContextSwitchTo(oldcontext);
+    }
+
+    funcctx = SRF_PERCALL_SETUP();
+    snapshot = (ErrorTrackEntry *)funcctx->user_fctx;
+
+    if (funcctx->call_cntr < funcctx->max_calls)
+    {
+        Datum values[4];
+        bool nulls[4] = {false, false, false, false};
+        HeapTuple tuple;
+        ErrorTrackEntry *entry = &snapshot[funcctx->call_cntr];
+        char sqlstate_str[6];
+
+        values[0] = UInt64GetDatum(entry->fingerprint);
+
+        /* Format SQLSTATE as 5-char string (e.g., "23505") */
+        snprintf(sqlstate_str, sizeof(sqlstate_str), "%05u", entry->sqlstate);
+        values[1] = CStringGetDatum(sqlstate_str);
+
+        values[2] = UInt64GetDatum(entry->error_count);
+        values[3] = TimestampTzGetDatum(entry->last_error_at);
+
+        tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+        SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
+    }
+
+    SRF_RETURN_DONE(funcctx);
+}
+
+/*
+ * pgtrace_internal_slow_queries()
+ * Returns recent slow queries from the ring buffer.
+ */
+PG_FUNCTION_INFO_V1(pgtrace_internal_slow_queries);
+
+PGDLLEXPORT Datum pgtrace_internal_slow_queries(PG_FUNCTION_ARGS)
+{
+    FuncCallContext *funcctx;
+    SlowQueryEntry *snapshot;
+    uint32 *num_entries_ptr;
+
+    if (SRF_IS_FIRSTCALL())
+    {
+        MemoryContext oldcontext;
+        TupleDesc tupdesc;
+        uint32 i, j, count;
+
+        funcctx = SRF_FIRSTCALL_INIT();
+        oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+        if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                     errmsg("pgtrace_internal_slow_queries must be called in a context that accepts a record")));
+
+        funcctx->tuple_desc = BlessTupleDesc(tupdesc);
+
+        /* Take snapshot of ring buffer under lock */
+        count = 0;
+        snapshot = palloc0(PGTRACE_SLOW_QUERY_BUFFER_SIZE * sizeof(SlowQueryEntry));
+
+        if (pgtrace_slow_query_buffer)
+        {
+            LWLockAcquire(&pgtrace_slow_query_buffer->lock, LW_SHARED);
+
+            for (i = 0, j = 0; i < PGTRACE_SLOW_QUERY_BUFFER_SIZE; i++)
+            {
+                SlowQueryEntry *entry = &pgtrace_slow_query_buffer->entries[i];
+                if (entry->valid)
+                {
+                    memcpy(&snapshot[j], entry, sizeof(SlowQueryEntry));
+                    j++;
+                    count++;
+                }
+            }
+
+            LWLockRelease(&pgtrace_slow_query_buffer->lock);
+        }
+
+        funcctx->user_fctx = snapshot;
+        num_entries_ptr = palloc(sizeof(uint32));
+        *num_entries_ptr = count;
+        funcctx->max_calls = count;
+        funcctx->attinmeta = (AttInMetadata *)num_entries_ptr;
+
+        MemoryContextSwitchTo(oldcontext);
+    }
+
+    funcctx = SRF_PERCALL_SETUP();
+    snapshot = (SlowQueryEntry *)funcctx->user_fctx;
+
+    if (funcctx->call_cntr < funcctx->max_calls)
+    {
+        Datum values[7];
+        bool nulls[7] = {false, false, false, false, false, false, false};
+        HeapTuple tuple;
+        SlowQueryEntry *entry = &snapshot[funcctx->call_cntr];
+
+        values[0] = UInt64GetDatum(entry->fingerprint);
+        values[1] = Float8GetDatum(entry->duration_ms);
+        values[2] = TimestampTzGetDatum(entry->timestamp);
+        values[3] = CStringGetDatum(entry->application_name);
+        values[4] = CStringGetDatum(entry->user);
+        values[5] = Int64GetDatum(entry->rows_processed);
+
+        tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+        SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
+    }
+
+    SRF_RETURN_DONE(funcctx);
+}
