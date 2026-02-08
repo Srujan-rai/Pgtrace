@@ -20,7 +20,7 @@ All notable changes to this project will be documented in this file.
   - New view `pgtrace_failing_queries` (fingerprint, error_code, error_count, last_error_at)
   - Error hash table (1000 entries) in shared memory
   - Note: emit_log_hook integration disabled pending debugging
-- **Shared memory hash tables**: 
+- **Shared memory hash tables**:
   - Query stats (10k unique queries)
   - Slow queries (1000 ring buffer)
   - Error tracking (1000 entries)
