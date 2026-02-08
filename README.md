@@ -10,7 +10,8 @@ histogram. The design is intentionally minimal to keep overhead low.
 
 ## Features
 
-- Tracks total, failed, and slow queries
+- Per-query fingerprinting with detailed stats (calls, errors, latency, timestamps)
+- Tracks total, failed, and slow queries (global metrics)
 - Latency histogram across 6 buckets
 - GUCs for enable/disable and slow-query threshold
 - Shared-memory metrics (cross-backend)
@@ -44,6 +45,25 @@ sudo -u postgres psql -c "CREATE EXTENSION pgtrace;"
 ```
 
 ## Usage
+
+### Per-Query Stats
+
+```sql
+SELECT * FROM pgtrace_query_stats;
+```
+
+Columns:
+
+- `fingerprint` (bigint) - 64-bit hash of normalized query
+- `calls` (bigint) - Number of executions
+- `errors` (bigint) - Number of failed executions
+- `total_time_ms` (double precision) - Total execution time
+- `avg_time_ms` (double precision) - Average execution time
+- `max_time_ms` (double precision) - Maximum execution time
+- `first_seen` (timestamptz) - First execution timestamp
+- `last_seen` (timestamptz) - Last execution timestamp
+
+Results ordered by `total_time_ms DESC` to show slowest queries first.
 
 ### Core Metrics
 

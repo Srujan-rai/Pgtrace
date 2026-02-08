@@ -8,6 +8,9 @@ void pgtrace_shmem_request(void)
 {
     RequestAddinShmemSpace(sizeof(PgTraceMetrics));
     RequestNamedLWLockTranche("pgtrace", 1);
+
+    /* V2: Request space for query hash table */
+    pgtrace_hash_request_shmem();
 }
 
 void pgtrace_shmem_startup(void)
@@ -28,4 +31,7 @@ void pgtrace_shmem_startup(void)
     }
 
     LWLockRelease(AddinShmemInitLock);
+
+    /* V2: Initialize query hash table */
+    pgtrace_hash_startup();
 }

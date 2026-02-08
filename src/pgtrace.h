@@ -19,6 +19,10 @@ typedef struct PgTraceMetrics
 
 extern PgTraceMetrics *pgtrace_metrics;
 
+/* V2: Per-query tracking */
+#include "fingerprint.h"
+#include "query_hash.h"
+
 extern bool pgtrace_enabled;
 extern int pgtrace_slow_query_ms;
 /* init functions */
@@ -32,3 +36,6 @@ void pgtrace_remove_hooks(void);
 void pgtrace_record_query(long duration_ms, bool failed);
 PGDLLEXPORT Datum pgtrace_internal_metrics(PG_FUNCTION_ARGS);
 PGDLLEXPORT Datum pgtrace_internal_latency(PG_FUNCTION_ARGS);
+
+/* V2: per-query stats */
+PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS);

@@ -1,17 +1,25 @@
 #include <postgres.h>
 #include <executor/executor.h>
 #include <utils/timestamp.h>
+#include <tcop/utility.h>
 #include "pgtrace.h"
 
 static ExecutorStart_hook_type prev_ExecutorStart = NULL;
 static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
 
 static TimestampTz query_start_time;
+static uint64 current_fingerprint = 0;
 
 static void
 pgtrace_ExecutorStart(QueryDesc *queryDesc, int eflags)
 {
     query_start_time = GetCurrentTimestamp();
+
+    /* V2: Compute fingerprint from query source text */
+    if (queryDesc->sourceText)
+        current_fingerprint = pgtrace_compute_fingerprint(queryDesc->sourceText);
+    else
+        current_fingerprint = 0;
 
     if (prev_ExecutorStart)
         prev_ExecutorStart(queryDesc, eflags);
@@ -32,7 +40,12 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
     TimestampDifference(query_start_time, end, &secs, &usecs);
     ms = secs * 1000 + usecs / 1000;
 
+    /* V1: Global metrics */
     pgtrace_record_query(ms, false);
+
+    /* V2: Per-query tracking */
+    if (current_fingerprint != 0)
+        pgtrace_hash_record(current_fingerprint, (double)ms, false);
 
     if (prev_ExecutorEnd)
         prev_ExecutorEnd(queryDesc);

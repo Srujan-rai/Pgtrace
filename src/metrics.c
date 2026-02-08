@@ -138,3 +138,92 @@ PGDLLEXPORT Datum pgtrace_internal_latency(PG_FUNCTION_ARGS)
 
     SRF_RETURN_DONE(funcctx);
 }
+
+/*
+ * V2: pgtrace_internal_query_stats()
+ * Returns per-query statistics from the hash table.
+ */
+PG_FUNCTION_INFO_V1(pgtrace_internal_query_stats);
+
+PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
+{
+    FuncCallContext *funcctx;
+    QueryStats *snapshot;
+    uint64 *num_entries_ptr;
+
+    if (SRF_IS_FIRSTCALL())
+    {
+        MemoryContext oldcontext;
+        TupleDesc tupdesc;
+        uint64 i, j, count;
+
+        funcctx = SRF_FIRSTCALL_INIT();
+        oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+        if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                     errmsg("pgtrace_internal_query_stats must be called in a context that accepts a record")));
+
+        funcctx->tuple_desc = BlessTupleDesc(tupdesc);
+
+        /* Take snapshot of hash table under lock */
+        count = 0;
+        snapshot = palloc0(PGTRACE_MAX_QUERIES * sizeof(QueryStats));
+
+        if (pgtrace_query_hash)
+        {
+            LWLockAcquire(&pgtrace_query_hash->lock, LW_SHARED);
+
+            for (i = 0, j = 0; i < PGTRACE_HASH_TABLE_SIZE && j < PGTRACE_MAX_QUERIES; i++)
+            {
+                QueryStats *entry = &pgtrace_query_hash->entries[i];
+                if (entry->valid)
+                {
+                    memcpy(&snapshot[j], entry, sizeof(QueryStats));
+                    j++;
+                    count++;
+                }
+            }
+
+            LWLockRelease(&pgtrace_query_hash->lock);
+        }
+
+        funcctx->user_fctx = snapshot;
+        num_entries_ptr = palloc(sizeof(uint64));
+        *num_entries_ptr = count;
+        funcctx->max_calls = count;
+        funcctx->attinmeta = (AttInMetadata *)num_entries_ptr; /* Abuse attinmeta to store count */
+
+        MemoryContextSwitchTo(oldcontext);
+    }
+
+    funcctx = SRF_PERCALL_SETUP();
+    snapshot = (QueryStats *)funcctx->user_fctx;
+
+    if (funcctx->call_cntr < funcctx->max_calls)
+    {
+        Datum values[8];
+        bool nulls[8] = {false, false, false, false, false, false, false, false};
+        HeapTuple tuple;
+        QueryStats *entry = &snapshot[funcctx->call_cntr];
+        double avg_time_ms;
+
+        values[0] = UInt64GetDatum(entry->fingerprint);
+        values[1] = UInt64GetDatum(entry->calls);
+        values[2] = UInt64GetDatum(entry->errors);
+        values[3] = Float8GetDatum(entry->total_time_ms);
+
+        avg_time_ms = (entry->calls > 0) ? (entry->total_time_ms / entry->calls) : 0.0;
+        values[4] = Float8GetDatum(avg_time_ms);
+
+        values[5] = Float8GetDatum(entry->max_time_ms);
+        values[6] = TimestampTzGetDatum(entry->first_seen);
+        values[7] = TimestampTzGetDatum(entry->last_seen);
+
+        tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+        SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
+    }
+
+    SRF_RETURN_DONE(funcctx);
+}
