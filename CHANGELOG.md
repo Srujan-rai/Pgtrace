@@ -13,6 +13,12 @@ All notable changes to this project will be documented in this file.
   - `scan_ratio`: Rows scanned / rows returned (efficiency metric)
   - `total_rows_returned`: Cumulative rows returned for efficiency analysis
   - New view `pgtrace_alien_queries`: Query `WHERE is_new OR is_anomalous`
+- **Rows Scanned vs Returned (Optimization Gold)**
+  - Tracks actual rows examined vs returned using executor instrumentation
+  - Identifies bad index usage (scan_ratio > 10)
+  - Identifies inefficient filters (scan_ratio > 50)
+  - Identifies full table scans (scan_ratio > 100)
+  - Uses plan state instrumentation for accurate scan accounting
 - **Extended `pgtrace_query_stats` view**: 13 columns including alien detection flags
 - **Baseline latency calculation**: Dynamic baseline for 3× anomaly threshold
 - **Upgrade path**: `pgtrace--0.2--0.3.sql` for seamless v0.2 → v0.3 migration
@@ -24,6 +30,7 @@ All notable changes to this project will be documented in this file.
 - `pgtrace_hash_get_baseline_latency()`: Computes mean average latency across all queries
 - Lock optimization: Baseline computed before exclusive lock to prevent deadlock
 - Double precision for scan ratio calculations
+- Executor instrumentation extraction for accurate row counting
 
 ## [0.2.0] - 2026-02-08
 

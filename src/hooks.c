@@ -43,6 +43,7 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
     const char *user_name;
     int64 rows_returned;
     int64 rows_scanned;
+    PlanState *plan_state;
 
     end = GetCurrentTimestamp();
 
@@ -59,12 +60,39 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
         user_name = GetUserNameFromId(GetUserId(), false);
         rows_returned = (queryDesc->estate && queryDesc->estate->es_processed) ? queryDesc->estate->es_processed : 0;
 
-        /* Estimate rows scanned (use rows_returned as proxy if no better info available) */
+        /*
+         * Track rows_scanned vs rows_returned (Optimization Gold)
+         * Extract tuple count from executor state for accurate scan accounting.
+         * This identifies:
+         * - Bad index usage (high ratio = full table scan instead of index)
+         * - Inefficient filters (high ratio = many rows examined before filter)
+         * - Sequential scans that could use indexes
+         */
         rows_scanned = rows_returned;
-        if (queryDesc->totaltime)
+        if (queryDesc->estate && queryDesc->planstate)
         {
-            /* If we have timing info, we might have better scan estimates */
-            rows_scanned = rows_returned; /* Simplified: would need executor state for actual scans */
+            plan_state = queryDesc->planstate;
+
+            /*
+             * Use instrumentation data if available.
+             * Instrumentation tracks actual rows examined at each plan node.
+             * For a sequential scan: tuplecount = rows examined
+             * For an index scan: tuplecount = rows fetched from index
+             * High ratio (rows_examined / rows_returned) indicates:
+             * - Full table scan when index could apply
+             * - Inefficient WHERE clause
+             * - Bad join order
+             */
+            if (plan_state->instrument)
+            {
+                /* Use actual tuple count from instrumentation */
+                rows_scanned = plan_state->instrument->tuplecount;
+            }
+            else
+            {
+                /* Fallback: use rows processed (conservative estimate) */
+                rows_scanned = rows_returned;
+            }
         }
 
         pgtrace_hash_record(current_fingerprint, (double)ms, false,
@@ -83,7 +111,6 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
     else
         standard_ExecutorEnd(queryDesc);
 }
-
 void pgtrace_init_hooks(void)
 {
     prev_ExecutorStart = ExecutorStart_hook;

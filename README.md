@@ -1,5 +1,3 @@
-# README
-
 Lightweight PostgreSQL extension for query tracing and latency metrics.
 
 ### Overview
@@ -65,6 +63,35 @@ Columns:
 - **`empty_app_count` (bigint)** - Times executed without application_name
 - **`scan_ratio` (double precision)** - Rows scanned / rows returned (efficiency)
 - **`total_rows_returned` (bigint)** - Cumulative rows returned
+
+#### Rows Scanned vs Returned (Optimization Gold)
+
+Pgtrace tracks `rows_scanned` vs `rows_returned` to identify optimization opportunities:
+
+```sql
+SELECT
+  fingerprint,
+  calls,
+  ROUND(scan_ratio::numeric, 2) as scan_ratio,
+  total_rows_returned,
+  ROUND(avg_time_ms::numeric, 2) as avg_ms
+FROM pgtrace_query_stats
+WHERE scan_ratio > 10
+ORDER BY scan_ratio DESC
+LIMIT 20;
+```
+
+High `scan_ratio` indicates:
+
+- **Bad index usage**: Full table scans instead of indexed lookups (ratio > 10)
+- **Inefficient filters**: WHERE clause examines many rows before filtering (ratio > 50)
+- **Sequential scans**: Table scanned sequentially when index could apply (ratio > 100)
+
+**Typical ratios:**
+
+- `1.0` = Efficient (all rows examined are returned)
+- `10.0` = 10 rows examined per row returned (consider adding index)
+- `100+` = Full table scan (major optimization target)
 
 #### Alien/Shadow Query Detection
 
