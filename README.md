@@ -62,8 +62,30 @@ Columns:
 - `max_time_ms` (double precision) - Maximum execution time
 - `first_seen` (timestamptz) - First execution timestamp
 - `last_seen` (timestamptz) - Last execution timestamp
+- **`is_new` (boolean)** - First execution (potential intrusion)
+- **`is_anomalous` (boolean)** - Latency or scan anomaly detected
+- **`empty_app_count` (bigint)** - Times executed without application_name
+- **`scan_ratio` (double precision)** - Rows scanned / rows returned (efficiency)
+- **`total_rows_returned` (bigint)** - Cumulative rows returned
 
-Results ordered by `total_time_ms DESC` to show slowest queries first.
+#### Alien/Shadow Query Detection
+
+Proactive intelligence for suspicious queries:
+
+```sql
+SELECT * FROM pgtrace_alien_queries
+WHERE is_new OR is_anomalous
+ORDER BY avg_time_ms DESC;
+```
+
+Identifies:
+
+- **New fingerprints**: Never-before-seen queries (potential unauthorized access)
+- **Anomalous latency**: Queries running 3× slower than baseline
+- **Inefficient scans**: Rows scanned > 100× rows returned (full table scans)
+- **Missing app context**: Queries with empty `application_name` (suspicious)
+
+This view combines all alien indicators in one place for rapid response.
 
 ### Slow Queries
 
