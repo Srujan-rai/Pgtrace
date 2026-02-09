@@ -203,11 +203,12 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
 
     if (funcctx->call_cntr < funcctx->max_calls)
     {
-        Datum values[8];
-        bool nulls[8] = {false, false, false, false, false, false, false, false};
+        Datum values[13];
+        bool nulls[13] = {false, false, false, false, false, false, false, false, false, false, false, false, false};
         HeapTuple tuple;
         QueryStats *entry = &snapshot[funcctx->call_cntr];
         double avg_time_ms;
+        double scan_ratio;
 
         values[0] = UInt64GetDatum(entry->fingerprint);
         values[1] = UInt64GetDatum(entry->calls);
@@ -220,6 +221,18 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
         values[5] = Float8GetDatum(entry->max_time_ms);
         values[6] = TimestampTzGetDatum(entry->first_seen);
         values[7] = TimestampTzGetDatum(entry->last_seen);
+
+        /* Alien/Shadow Query Detection fields */
+        values[8] = BoolGetDatum(entry->is_new);
+        values[9] = BoolGetDatum(entry->is_anomalous);
+        values[10] = UInt64GetDatum(entry->empty_app_count);
+
+        scan_ratio = (entry->total_rows_returned > 0)
+                         ? ((double)entry->total_rows_scanned / (double)entry->total_rows_returned)
+                         : 0.0;
+        values[11] = Float8GetDatum(scan_ratio);
+
+        values[12] = UInt64GetDatum(entry->total_rows_returned);
 
         tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
         SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));

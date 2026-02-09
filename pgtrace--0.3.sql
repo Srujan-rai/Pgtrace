@@ -1,31 +1,34 @@
+/* PgTrace v0.3 - Alien/Shadow Query Detection */
+
+/* Global metrics view */
 CREATE FUNCTION pgtrace_internal_metrics()
-RETURNS TABLE (
-  queries_total bigint,
-  queries_failed bigint,
-  slow_queries bigint
-)
+RETURNS TABLE (queries_total bigint, queries_failed bigint, slow_queries bigint)
 AS 'MODULE_PATHNAME', 'pgtrace_internal_metrics'
 LANGUAGE C STRICT;
 
+CREATE VIEW pgtrace_metrics AS SELECT * FROM pgtrace_internal_metrics();
+
 CREATE FUNCTION pgtrace_internal_latency()
 RETURNS TABLE (
-  bucket_upper_ms int,
-  count bigint
+  bucket text,
+  queries bigint
 )
 AS 'MODULE_PATHNAME', 'pgtrace_internal_latency'
 LANGUAGE C STRICT;
 
-CREATE VIEW pgtrace_metrics AS
-SELECT
-  queries_total,
-  queries_failed,
-  slow_queries
-FROM pgtrace_internal_metrics();
-
 CREATE VIEW pgtrace_latency_histogram AS
-SELECT * FROM pgtrace_internal_latency();
+SELECT * FROM pgtrace_internal_latency()
+ORDER BY
+  CASE bucket
+    WHEN '0-1ms' THEN 1
+    WHEN '1-10ms' THEN 2
+    WHEN '10-100ms' THEN 3
+    WHEN '100-1000ms' THEN 4
+    WHEN '1000-10000ms' THEN 5
+    ELSE 6
+  END;
 
--- V2: Per-query fingerprinting and stats
+/* Per-query stats view with alien detection */
 
 CREATE FUNCTION pgtrace_internal_query_stats()
 RETURNS TABLE (
@@ -85,11 +88,7 @@ RETURNS TABLE (
 AS 'MODULE_PATHNAME', 'pgtrace_internal_slow_queries'
 LANGUAGE C STRICT;
 
-CREATE VIEW pgtrace_slow_queries AS
-SELECT * FROM pgtrace_internal_slow_queries()
-ORDER BY duration_ms DESC;
-
-/* Management functions */
+CREATE VIEW pgtrace_slow_queries AS SELECT * FROM pgtrace_internal_slow_queries();
 
 CREATE FUNCTION pgtrace_reset()
 RETURNS void
@@ -113,6 +112,4 @@ RETURNS TABLE (
 AS 'MODULE_PATHNAME', 'pgtrace_internal_failing_queries'
 LANGUAGE C STRICT;
 
-CREATE VIEW pgtrace_failing_queries AS
-SELECT * FROM pgtrace_internal_failing_queries()
-ORDER BY error_count DESC;
+CREATE VIEW pgtrace_failing_queries AS SELECT * FROM pgtrace_internal_failing_queries();

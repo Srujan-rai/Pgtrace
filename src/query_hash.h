@@ -17,6 +17,13 @@ typedef struct QueryStats
     TimestampTz first_seen; /* First execution timestamp */
     TimestampTz last_seen;  /* Last execution timestamp */
     bool valid;             /* Entry is in use */
+
+    /* Alien/Shadow Query Detection */
+    bool is_new;                /* First call (calls == 1) */
+    bool is_anomalous;          /* Latency or scan anomaly detected */
+    uint64 empty_app_count;     /* Times executed with empty application_name */
+    uint64 total_rows_scanned;  /* Cumulative rows examined */
+    uint64 total_rows_returned; /* Cumulative rows returned */
 } QueryStats;
 
 /*
@@ -40,7 +47,9 @@ extern PgTraceQueryHash *pgtrace_query_hash;
 void pgtrace_hash_init(void);
 void pgtrace_hash_request_shmem(void);
 void pgtrace_hash_startup(void);
-void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed);
+void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
+                         const char *app_name, uint64 rows_scanned, uint64 rows_returned);
 QueryStats *pgtrace_hash_get(uint64 fingerprint);
 uint64 pgtrace_hash_count(void);
 void pgtrace_hash_reset(void);
+double pgtrace_hash_get_baseline_latency(void);

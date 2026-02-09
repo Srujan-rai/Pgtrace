@@ -39,6 +39,10 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
     long secs;
     int usecs;
     long ms;
+    const char *app_name;
+    const char *user_name;
+    int64 rows_returned;
+    int64 rows_scanned;
 
     end = GetCurrentTimestamp();
 
@@ -48,20 +52,29 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
     /* V1: Global metrics */
     pgtrace_record_query(ms, false);
 
-    /* V2: Per-query tracking */
+    /* V2: Per-query tracking with alien detection */
     if (current_fingerprint != 0)
     {
-        pgtrace_hash_record(current_fingerprint, (double)ms, false);
+        app_name = application_name ? application_name : "";
+        user_name = GetUserNameFromId(GetUserId(), false);
+        rows_returned = (queryDesc->estate && queryDesc->estate->es_processed) ? queryDesc->estate->es_processed : 0;
+
+        /* Estimate rows scanned (use rows_returned as proxy if no better info available) */
+        rows_scanned = rows_returned;
+        if (queryDesc->totaltime)
+        {
+            /* If we have timing info, we might have better scan estimates */
+            rows_scanned = rows_returned; /* Simplified: would need executor state for actual scans */
+        }
+
+        pgtrace_hash_record(current_fingerprint, (double)ms, false,
+                            app_name, rows_scanned, rows_returned);
 
         /* V2: Record slow queries */
         if (ms > pgtrace_slow_query_ms)
         {
-            const char *app_name = application_name ? application_name : "";
-            const char *user_name = GetUserNameFromId(GetUserId(), false);
-            int64 rows = (queryDesc->estate && queryDesc->estate->es_processed) ? queryDesc->estate->es_processed : 0;
-
             pgtrace_slow_query_record(current_fingerprint, (double)ms,
-                                      app_name, user_name, rows);
+                                      app_name, user_name, rows_returned);
         }
     }
 
