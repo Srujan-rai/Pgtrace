@@ -124,6 +124,9 @@ void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
     if (!pgtrace_query_hash)
         return;
 
+    /* Compute baseline before taking exclusive lock to avoid lock recursion */
+    baseline_latency = pgtrace_hash_get_baseline_latency();
+
     LWLockAcquire(&pgtrace_query_hash->lock, LW_EXCLUSIVE);
 
     entry = find_or_create_entry(fingerprint);
@@ -151,7 +154,6 @@ void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
         entry->total_rows_returned += rows_returned;
 
         /* Detect anomalous behavior */
-        baseline_latency = pgtrace_hash_get_baseline_latency();
         entry->is_anomalous = false;
 
         /* Check: latency 3× baseline */
@@ -159,7 +161,7 @@ void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
             entry->is_anomalous = true;
 
         /* Check: scan ratio threshold (rows_scanned / rows_returned > 100) */
-        if (rows_returned > 0 && (rows_scanned / rows_returned) > 100)
+        if (rows_returned > 0 && ((double)rows_scanned / (double)rows_returned) > 100.0)
             entry->is_anomalous = true;
     }
 
