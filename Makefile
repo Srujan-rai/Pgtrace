@@ -13,7 +13,7 @@ OBJS = \
     src/error_track.o \
     src/error_hook.o
 
-DATA = pgtrace--0.1.sql pgtrace--0.2.sql pgtrace--0.3.sql pgtrace--0.1--0.2.sql pgtrace--0.2--0.3.sql
+DATA = pgtrace--0.3.sql pgtrace--0.2--0.3.sql
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
