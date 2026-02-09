@@ -1,7 +1,5 @@
 # README
 
-![Pgtrace Logo](assets/logo.png)
-
 Lightweight PostgreSQL extension for query tracing and latency metrics.
 
 ### Overview
@@ -198,5 +196,3 @@ This repository includes the following project files:
 - **Code of Conduct**: `CODE_OF_CONDUCT.md`
 - **Security policy**: `SECURITY.md`
 - **Changelog**: `CHANGELOG.md`
-- **Issue templates**: `.github/ISSUE_TEMPLATE/`
-- **PR template**: `.github/pull_request_template.md`
