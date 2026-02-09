@@ -1,6 +1,6 @@
 # README
 
-![Pgtrace Logo](.gitbook/assets/logo.png)
+![Pgtrace Logo](assets/logo.png)
 
 Lightweight PostgreSQL extension for query tracing and latency metrics.
 
