@@ -17,6 +17,9 @@ void pgtrace_shmem_request(void)
 
     /* V2: Request space for error tracking buffer */
     pgtrace_error_request_shmem();
+
+    /* V2.5: Request space for audit event buffer */
+    pgtrace_audit_request_shmem();
 }
 
 void pgtrace_shmem_startup(void)
@@ -46,4 +49,7 @@ void pgtrace_shmem_startup(void)
 
     /* V2: Initialize error tracking buffer */
     pgtrace_error_startup();
+
+    /* V2.5: Initialize audit event buffer */
+    pgtrace_audit_startup();
 }

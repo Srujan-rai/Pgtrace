@@ -112,10 +112,11 @@ find_or_create_entry(uint64 fingerprint)
 }
 
 /*
- * Record query execution in hash table with alien detection.
+ * Record query execution in hash table with alien detection, context propagation, and percentiles.
  */
 void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
-                         const char *app_name, uint64 rows_scanned, uint64 rows_returned)
+                         const char *app_name, const char *user_name, const char *db_name,
+                         const char *req_id, uint64 rows_scanned, uint64 rows_returned)
 {
     QueryStats *entry;
     double baseline_latency;
@@ -127,7 +128,8 @@ void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
     /* Compute baseline before taking exclusive lock to avoid lock recursion */
     baseline_latency = pgtrace_hash_get_baseline_latency();
 
-    LWLockAcquire(&pgtrace_query_hash->lock, LW_EXCLUSIVE);
+    LWLockPadded *lock = GetNamedLWLockTranche("pgtrace_query_hash");
+    LWLockAcquire(&lock->lock, LW_EXCLUSIVE);
 
     entry = find_or_create_entry(fingerprint);
     if (entry)
@@ -153,6 +155,22 @@ void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
         entry->total_rows_scanned += rows_scanned;
         entry->total_rows_returned += rows_returned;
 
+        /* Context Propagation (Production Grade) */
+        if (app_name)
+            snprintf(entry->last_app_name, sizeof(entry->last_app_name), "%s", app_name);
+        if (user_name)
+            snprintf(entry->last_user, sizeof(entry->last_user), "%s", user_name);
+        if (db_name)
+            snprintf(entry->last_database, sizeof(entry->last_database), "%s", db_name);
+        if (req_id)
+            snprintf(entry->last_request_id, sizeof(entry->last_request_id), "%s", req_id);
+
+        /* Per-Query Percentiles (Tail Latency Detection) */
+        entry->latency_samples[entry->sample_pos] = duration_ms;
+        entry->sample_pos = (entry->sample_pos + 1) % PGTRACE_LATENCY_BUCKETS;
+        if (entry->sample_count < PGTRACE_LATENCY_BUCKETS)
+            entry->sample_count++;
+
         /* Detect anomalous behavior */
         entry->is_anomalous = false;
 
@@ -165,7 +183,7 @@ void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
             entry->is_anomalous = true;
     }
 
-    LWLockRelease(&pgtrace_query_hash->lock);
+    LWLockRelease(&lock->lock);
 }
 
 /*
@@ -175,13 +193,15 @@ QueryStats *
 pgtrace_hash_get(uint64 fingerprint)
 {
     QueryStats *entry;
+    LWLockPadded *lock;
 
     if (!pgtrace_query_hash)
         return NULL;
 
-    LWLockAcquire(&pgtrace_query_hash->lock, LW_SHARED);
+    lock = GetNamedLWLockTranche("pgtrace_query_hash");
+    LWLockAcquire(&lock->lock, LW_SHARED);
     entry = find_entry(fingerprint);
-    LWLockRelease(&pgtrace_query_hash->lock);
+    LWLockRelease(&lock->lock);
 
     return entry;
 }
@@ -193,13 +213,15 @@ uint64
 pgtrace_hash_count(void)
 {
     uint64 count;
+    LWLockPadded *lock;
 
     if (!pgtrace_query_hash)
         return 0;
 
-    LWLockAcquire(&pgtrace_query_hash->lock, LW_SHARED);
+    lock = GetNamedLWLockTranche("pgtrace_query_hash");
+    LWLockAcquire(&lock->lock, LW_SHARED);
     count = pgtrace_query_hash->num_entries;
-    LWLockRelease(&pgtrace_query_hash->lock);
+    LWLockRelease(&lock->lock);
 
     return count;
 }
@@ -209,14 +231,17 @@ pgtrace_hash_count(void)
  */
 void pgtrace_hash_reset(void)
 {
+    LWLockPadded *lock;
+
     if (!pgtrace_query_hash)
         return;
 
-    LWLockAcquire(&pgtrace_query_hash->lock, LW_EXCLUSIVE);
+    lock = GetNamedLWLockTranche("pgtrace_query_hash");
+    LWLockAcquire(&lock->lock, LW_EXCLUSIVE);
     memset(pgtrace_query_hash->entries, 0, sizeof(pgtrace_query_hash->entries));
     pgtrace_query_hash->num_entries = 0;
     pgtrace_query_hash->collisions = 0;
-    LWLockRelease(&pgtrace_query_hash->lock);
+    LWLockRelease(&lock->lock);
 }
 
 /*
@@ -228,12 +253,14 @@ double pgtrace_hash_get_baseline_latency(void)
     double sum = 0.0;
     uint64 count = 0;
     uint64 i;
+    LWLockPadded *lock;
 
     if (!pgtrace_query_hash)
         return 0.0;
 
     /* Compute mean average latency across all queries (simplified baseline) */
-    LWLockAcquire(&pgtrace_query_hash->lock, LW_SHARED);
+    lock = GetNamedLWLockTranche("pgtrace_query_hash");
+    LWLockAcquire(&lock->lock, LW_SHARED);
 
     for (i = 0; i < PGTRACE_HASH_TABLE_SIZE; i++)
     {
@@ -245,7 +272,7 @@ double pgtrace_hash_get_baseline_latency(void)
         }
     }
 
-    LWLockRelease(&pgtrace_query_hash->lock);
+    LWLockRelease(&lock->lock);
 
     return (count > 0) ? (sum / count) : 0.0;
 }

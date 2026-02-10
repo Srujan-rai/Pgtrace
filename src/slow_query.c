@@ -47,11 +47,13 @@ void pgtrace_slow_query_record(uint64 fingerprint, double duration_ms,
                                int64 rows_processed)
 {
     SlowQueryEntry *entry;
+    LWLockPadded *lock;
 
     if (!pgtrace_slow_query_buffer)
         return;
 
-    LWLockAcquire(&pgtrace_slow_query_buffer->lock, LW_EXCLUSIVE);
+    lock = GetNamedLWLockTranche("pgtrace_slow_query");
+    LWLockAcquire(&lock->lock, LW_EXCLUSIVE);
 
     entry = &pgtrace_slow_query_buffer->entries[pgtrace_slow_query_buffer->write_pos];
 
@@ -78,7 +80,7 @@ void pgtrace_slow_query_record(uint64 fingerprint, double duration_ms,
     pgtrace_slow_query_buffer->write_pos =
         (pgtrace_slow_query_buffer->write_pos + 1) % PGTRACE_SLOW_QUERY_BUFFER_SIZE;
 
-    LWLockRelease(&pgtrace_slow_query_buffer->lock);
+    LWLockRelease(&lock->lock);
 }
 
 /*
@@ -89,11 +91,13 @@ pgtrace_slow_query_count(void)
 {
     uint32 count = 0;
     uint32 i;
+    LWLockPadded *lock;
 
     if (!pgtrace_slow_query_buffer)
         return 0;
 
-    LWLockAcquire(&pgtrace_slow_query_buffer->lock, LW_SHARED);
+    lock = GetNamedLWLockTranche("pgtrace_slow_query");
+    LWLockAcquire(&lock->lock, LW_SHARED);
 
     for (i = 0; i < PGTRACE_SLOW_QUERY_BUFFER_SIZE; i++)
     {
@@ -101,7 +105,7 @@ pgtrace_slow_query_count(void)
             count++;
     }
 
-    LWLockRelease(&pgtrace_slow_query_buffer->lock);
+    LWLockRelease(&lock->lock);
 
     return count;
 }

@@ -1,4 +1,4 @@
-/* PgTrace v0.3 - Alien/Shadow Query Detection */
+/* PgTrace v0.3 - Alien/Shadow Query Detection, Context Propagation, Percentiles */
 
 /* Global metrics view */
 CREATE FUNCTION pgtrace_internal_metrics()
@@ -28,7 +28,7 @@ ORDER BY
     ELSE 6
   END;
 
-/* Per-query stats view with alien detection */
+/* Per-query stats view with alien detection, context propagation, and percentiles */
 
 CREATE FUNCTION pgtrace_internal_query_stats()
 RETURNS TABLE (
@@ -44,7 +44,13 @@ RETURNS TABLE (
   is_anomalous boolean,
   empty_app_count bigint,
   scan_ratio double precision,
-  total_rows_returned bigint
+  total_rows_returned bigint,
+  last_app_name text,
+  last_user text,
+  last_database text,
+  last_request_id text,
+  p95_ms double precision,
+  p99_ms double precision
 )
 AS 'MODULE_PATHNAME', 'pgtrace_internal_query_stats'
 LANGUAGE C STRICT;
@@ -65,6 +71,12 @@ SELECT
   empty_app_count,
   scan_ratio,
   total_rows_returned,
+  last_app_name,
+  last_user,
+  last_database,
+  last_request_id,
+  p95_ms,
+  p99_ms,
   first_seen,
   last_seen
 FROM pgtrace_internal_query_stats()
@@ -113,3 +125,21 @@ AS 'MODULE_PATHNAME', 'pgtrace_internal_failing_queries'
 LANGUAGE C STRICT;
 
 CREATE VIEW pgtrace_failing_queries AS SELECT * FROM pgtrace_internal_failing_queries();
+
+/* Structured Audit Events (V2.5 - Optional) */
+
+CREATE FUNCTION pgtrace_internal_audit_events()
+RETURNS TABLE (
+  fingerprint bigint,
+  operation text,
+  db_user text,
+  database text,
+  rows_affected bigint,
+  duration_ms double precision,
+  event_timestamp timestamptz
+)
+AS 'MODULE_PATHNAME', 'pgtrace_internal_audit_events'
+LANGUAGE C STRICT;
+
+CREATE VIEW pgtrace_audit_events AS SELECT * FROM pgtrace_internal_audit_events()
+ORDER BY event_timestamp DESC;

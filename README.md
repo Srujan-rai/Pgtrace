@@ -11,6 +11,9 @@ Pgtrace hooks into the PostgreSQL executor to record aggregate query metrics in 
 - Latency histogram across 6 buckets
 - GUCs for enable/disable and slow-query threshold
 - Shared-memory metrics (cross-backend)
+- Context propagation (request_id + app/user/database correlation)
+- Per-query latency percentiles (p95, p99)
+- Structured audit events (optional, bounded buffer)
 
 ### Requirements
 
@@ -63,6 +66,44 @@ Columns:
 - **`empty_app_count` (bigint)** - Times executed without application_name
 - **`scan_ratio` (double precision)** - Rows scanned / rows returned (efficiency)
 - **`total_rows_returned` (bigint)** - Cumulative rows returned
+- **`last_app_name` (text)** - Latest application_name seen for this fingerprint
+- **`last_user` (text)** - Latest database user for this fingerprint
+- **`last_database` (text)** - Latest database name for this fingerprint
+- **`last_request_id` (text)** - Latest request_id set via GUC
+- **`p95_ms` (double precision)** - 95th percentile latency per query
+- **`p99_ms` (double precision)** - 99th percentile latency per query
+
+#### Context Propagation (Production Grade)
+
+Set a request ID per session or request:
+
+```sql
+SET pgtrace.request_id = 'abc123';
+```
+
+Pgtrace captures:
+
+- `application_name`
+- `user`
+- `database`
+- optional `request_id`
+
+This enables service-level correlation in production environments.
+
+#### Per-Query Percentiles (Tail Latency)
+
+Query p95/p99 per fingerprint:
+
+```sql
+SELECT
+  fingerprint,
+  ROUND(p95_ms::numeric, 2) AS p95_ms,
+  ROUND(p99_ms::numeric, 2) AS p99_ms,
+  ROUND(avg_time_ms::numeric, 2) AS avg_ms
+FROM pgtrace_query_stats
+ORDER BY p99_ms DESC
+LIMIT 20;
+```
 
 #### Rows Scanned vs Returned (Optimization Gold)
 
@@ -160,6 +201,26 @@ Columns:
 
 Directly answers: "Which query keeps breaking and why?"
 
+### Structured Audit Events (Optional V2.5)
+
+For compliance or high-control environments, Pgtrace stores structured audit events in a bounded buffer:
+
+```sql
+SELECT * FROM pgtrace_audit_events
+ORDER BY timestamp DESC
+LIMIT 50;
+```
+
+Columns:
+
+- `fingerprint` (bigint)
+- `operation` (text) - SELECT/INSERT/UPDATE/DELETE/DDL/UNKNOWN
+- `db_user` (text)
+- `database` (text)
+- `rows_affected` (bigint)
+- `duration_ms` (double precision)
+- `timestamp` (timestamptz)
+
 ### Core Metrics
 
 ```sql
@@ -188,12 +249,14 @@ Columns:
 ```sql
 SHOW pgtrace.enabled;
 SHOW pgtrace.slow_query_ms;
+SHOW pgtrace.request_id;
 ```
 
 Defaults:
 
 - `pgtrace.enabled = on`
 - `pgtrace.slow_query_ms = 200`
+- `pgtrace.request_id = NULL`
 
 ### Troubleshooting
 

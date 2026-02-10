@@ -4,6 +4,8 @@
 #include <tcop/utility.h>
 #include <miscadmin.h>
 #include <catalog/pg_authid.h>
+#include <commands/dbcommands.h>
+#include <nodes/parsenodes.h>
 #include "pgtrace.h"
 
 static ExecutorStart_hook_type prev_ExecutorStart = NULL;
@@ -41,6 +43,8 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
     long ms;
     const char *app_name;
     const char *user_name;
+    const char *db_name;
+    const char *req_id;
     int64 rows_returned;
     int64 rows_scanned;
     PlanState *plan_state;
@@ -58,6 +62,8 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
     {
         app_name = application_name ? application_name : "";
         user_name = GetUserNameFromId(GetUserId(), false);
+        db_name = get_database_name(MyDatabaseId);
+        req_id = pgtrace_request_id ? pgtrace_request_id : "";
         rows_returned = (queryDesc->estate && queryDesc->estate->es_processed) ? queryDesc->estate->es_processed : 0;
 
         /*
@@ -76,12 +82,6 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
             /*
              * Use instrumentation data if available.
              * Instrumentation tracks actual rows examined at each plan node.
-             * For a sequential scan: tuplecount = rows examined
-             * For an index scan: tuplecount = rows fetched from index
-             * High ratio (rows_examined / rows_returned) indicates:
-             * - Full table scan when index could apply
-             * - Inefficient WHERE clause
-             * - Bad join order
              */
             if (plan_state->instrument)
             {
@@ -96,13 +96,42 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
         }
 
         pgtrace_hash_record(current_fingerprint, (double)ms, false,
-                            app_name, rows_scanned, rows_returned);
+                            app_name, user_name, db_name, req_id,
+                            rows_scanned, rows_returned);
 
         /* V2: Record slow queries */
         if (ms > pgtrace_slow_query_ms)
         {
             pgtrace_slow_query_record(current_fingerprint, (double)ms,
                                       app_name, user_name, rows_returned);
+        }
+
+        /* V2.5: Record audit event if enabled */
+        if (pgtrace_enabled)
+        {
+            AuditOpType op_type = AUDIT_UNKNOWN;
+
+            switch (queryDesc->operation)
+            {
+            case CMD_SELECT:
+                op_type = AUDIT_SELECT;
+                break;
+            case CMD_INSERT:
+                op_type = AUDIT_INSERT;
+                break;
+            case CMD_UPDATE:
+                op_type = AUDIT_UPDATE;
+                break;
+            case CMD_DELETE:
+                op_type = AUDIT_DELETE;
+                break;
+            default:
+                op_type = AUDIT_UNKNOWN;
+                break;
+            }
+
+            pgtrace_audit_record(current_fingerprint, op_type,
+                                 user_name, db_name, rows_returned, (double)ms);
         }
     }
 

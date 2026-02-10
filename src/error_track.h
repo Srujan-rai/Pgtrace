@@ -26,7 +26,6 @@ typedef struct ErrorTrackBuffer
 {
     ErrorTrackEntry entries[PGTRACE_ERROR_BUFFER_SIZE];
     uint32 num_entries; /* Current number of active entries */
-    LWLock lock;        /* Lock for concurrent access */
 } ErrorTrackBuffer;
 
 extern ErrorTrackBuffer *pgtrace_error_buffer;

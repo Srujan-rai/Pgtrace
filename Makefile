@@ -11,7 +11,8 @@ OBJS = \
     src/query_hash.o \
     src/slow_query.o \
     src/error_track.o \
-    src/error_hook.o
+    src/error_hook.o \
+    src/audit.o
 
 DATA = pgtrace--0.3.sql pgtrace--0.2--0.3.sql
 

@@ -4,6 +4,7 @@
 
 bool pgtrace_enabled = true;
 int pgtrace_slow_query_ms = 200;
+char *pgtrace_request_id = NULL;
 
 void pgtrace_init_guc(void)
 {
@@ -26,6 +27,16 @@ void pgtrace_init_guc(void)
         1,
         60000,
         PGC_SUSET,
+        0,
+        NULL, NULL, NULL);
+
+    DefineCustomStringVariable(
+        "pgtrace.request_id",
+        "Context propagation request ID for correlation",
+        NULL,
+        &pgtrace_request_id,
+        NULL,
+        PGC_USERSET,
         0,
         NULL, NULL, NULL);
 }

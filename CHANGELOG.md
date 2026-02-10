@@ -19,6 +19,14 @@ All notable changes to this project will be documented in this file.
   - Identifies inefficient filters (scan_ratio > 50)
   - Identifies full table scans (scan_ratio > 100)
   - Uses plan state instrumentation for accurate scan accounting
+- **Context Propagation (Production Grade)**
+  - Captures application_name, user, database, and optional request_id
+  - New GUC: `pgtrace.request_id`
+- **Per-Query Percentiles**
+  - Per-fingerprint latency samples for p95/p99 tail latency detection
+- **Structured Audit Events (Optional V2.5)**
+  - Operation type, user, database, rows affected, duration
+  - Bounded shared memory audit buffer
 - **Extended `pgtrace_query_stats` view**: 13 columns including alien detection flags
 - **Baseline latency calculation**: Dynamic baseline for 3× anomaly threshold
 - **Upgrade path**: `pgtrace--0.2--0.3.sql` for seamless v0.2 → v0.3 migration
@@ -31,6 +39,7 @@ All notable changes to this project will be documented in this file.
 - Lock optimization: Baseline computed before exclusive lock to prevent deadlock
 - Double precision for scan ratio calculations
 - Executor instrumentation extraction for accurate row counting
+- Per-query latency sample ring buffer for percentile calculations
 
 ## [0.2.0] - 2026-02-08
 

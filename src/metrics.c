@@ -1,6 +1,43 @@
 #include <postgres.h>
 #include <funcapi.h>
+#include <stdlib.h>
 #include "pgtrace.h"
+
+/*
+ * Calculate percentile from sorted samples.
+ * Assumes samples array is already sorted.
+ */
+static double
+calculate_percentile(double *samples, uint32 count, double percentile)
+{
+    uint32 idx;
+
+    if (count == 0)
+        return 0.0;
+
+    if (count == 1)
+        return samples[0];
+
+    idx = (uint32)((percentile / 100.0) * (count - 1));
+    if (idx >= count)
+        idx = count - 1;
+
+    return samples[idx];
+}
+
+/*
+ * Compare function for qsort.
+ */
+static int
+compare_doubles(const void *a, const void *b)
+{
+    double diff = *(double *)a - *(double *)b;
+    if (diff < 0)
+        return -1;
+    if (diff > 0)
+        return 1;
+    return 0;
+}
 
 static int
 bucket_for_latency(long ms)
@@ -173,7 +210,8 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
 
         if (pgtrace_query_hash)
         {
-            LWLockAcquire(&pgtrace_query_hash->lock, LW_SHARED);
+            LWLockPadded *lock = GetNamedLWLockTranche("pgtrace_query_hash");
+            LWLockAcquire(&lock->lock, LW_SHARED);
 
             for (i = 0, j = 0; i < PGTRACE_HASH_TABLE_SIZE && j < PGTRACE_MAX_QUERIES; i++)
             {
@@ -186,7 +224,7 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
                 }
             }
 
-            LWLockRelease(&pgtrace_query_hash->lock);
+            LWLockRelease(&lock->lock);
         }
 
         funcctx->user_fctx = snapshot;
@@ -203,12 +241,15 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
 
     if (funcctx->call_cntr < funcctx->max_calls)
     {
-        Datum values[13];
-        bool nulls[13] = {false, false, false, false, false, false, false, false, false, false, false, false, false};
+        Datum values[19];
+        bool nulls[19] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
         HeapTuple tuple;
         QueryStats *entry = &snapshot[funcctx->call_cntr];
         double avg_time_ms;
         double scan_ratio;
+        double p95_ms = 0.0;
+        double p99_ms = 0.0;
+        uint32 sample_count = entry->sample_count;
 
         values[0] = UInt64GetDatum(entry->fingerprint);
         values[1] = UInt64GetDatum(entry->calls);
@@ -233,6 +274,26 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
         values[11] = Float8GetDatum(scan_ratio);
 
         values[12] = UInt64GetDatum(entry->total_rows_returned);
+
+        /* Context propagation fields */
+        values[13] = CStringGetDatum(entry->last_app_name);
+        values[14] = CStringGetDatum(entry->last_user);
+        values[15] = CStringGetDatum(entry->last_database);
+        values[16] = CStringGetDatum(entry->last_request_id);
+
+        /* Per-query percentiles (p95, p99) */
+        if (sample_count > 0)
+        {
+            double *samples = palloc(sizeof(double) * sample_count);
+            memcpy(samples, entry->latency_samples, sizeof(double) * sample_count);
+            qsort(samples, sample_count, sizeof(double), compare_doubles);
+            p95_ms = calculate_percentile(samples, sample_count, 95.0);
+            p99_ms = calculate_percentile(samples, sample_count, 99.0);
+            pfree(samples);
+        }
+
+        values[17] = Float8GetDatum(p95_ms);
+        values[18] = Float8GetDatum(p99_ms);
 
         tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
         SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
@@ -299,7 +360,8 @@ PGDLLEXPORT Datum pgtrace_internal_failing_queries(PG_FUNCTION_ARGS)
 
         if (pgtrace_error_buffer)
         {
-            LWLockAcquire(&pgtrace_error_buffer->lock, LW_SHARED);
+            LWLockPadded *lock = GetNamedLWLockTranche("pgtrace_error_track");
+            LWLockAcquire(&lock->lock, LW_SHARED);
 
             for (i = 0, j = 0; i < pgtrace_error_buffer->num_entries; i++)
             {
@@ -312,7 +374,7 @@ PGDLLEXPORT Datum pgtrace_internal_failing_queries(PG_FUNCTION_ARGS)
                 }
             }
 
-            LWLockRelease(&pgtrace_error_buffer->lock);
+            LWLockRelease(&lock->lock);
         }
 
         funcctx->user_fctx = snapshot;
@@ -385,7 +447,8 @@ PGDLLEXPORT Datum pgtrace_internal_slow_queries(PG_FUNCTION_ARGS)
 
         if (pgtrace_slow_query_buffer)
         {
-            LWLockAcquire(&pgtrace_slow_query_buffer->lock, LW_SHARED);
+            LWLockPadded *lock = GetNamedLWLockTranche("pgtrace_slow_query");
+            LWLockAcquire(&lock->lock, LW_SHARED);
 
             for (i = 0, j = 0; i < PGTRACE_SLOW_QUERY_BUFFER_SIZE; i++)
             {
@@ -398,7 +461,7 @@ PGDLLEXPORT Datum pgtrace_internal_slow_queries(PG_FUNCTION_ARGS)
                 }
             }
 
-            LWLockRelease(&pgtrace_slow_query_buffer->lock);
+            LWLockRelease(&lock->lock);
         }
 
         funcctx->user_fctx = snapshot;
@@ -426,6 +489,115 @@ PGDLLEXPORT Datum pgtrace_internal_slow_queries(PG_FUNCTION_ARGS)
         values[3] = CStringGetDatum(entry->application_name);
         values[4] = CStringGetDatum(entry->user);
         values[5] = Int64GetDatum(entry->rows_processed);
+
+        tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+        SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
+    }
+
+    SRF_RETURN_DONE(funcctx);
+}
+
+/*
+ * pgtrace_internal_audit_events()
+ * Returns structured audit events from the audit buffer (V2.5).
+ */
+PG_FUNCTION_INFO_V1(pgtrace_internal_audit_events);
+
+PGDLLEXPORT Datum pgtrace_internal_audit_events(PG_FUNCTION_ARGS)
+{
+    FuncCallContext *funcctx;
+    AuditEvent *snapshot;
+    uint32 *num_entries_ptr;
+
+    if (SRF_IS_FIRSTCALL())
+    {
+        MemoryContext oldcontext;
+        TupleDesc tupdesc;
+        uint32 i, j, count;
+
+        funcctx = SRF_FIRSTCALL_INIT();
+        oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+        if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                     errmsg("pgtrace_internal_audit_events must be called in a context that accepts a record")));
+
+        funcctx->tuple_desc = BlessTupleDesc(tupdesc);
+
+        /* Take snapshot of audit buffer under lock */
+        count = 0;
+        snapshot = palloc0(PGTRACE_AUDIT_BUFFER_SIZE * sizeof(AuditEvent));
+
+        if (pgtrace_audit_buffer)
+        {
+            LWLockPadded *lock = GetNamedLWLockTranche("pgtrace_audit");
+            LWLockAcquire(&lock->lock, LW_SHARED);
+
+            for (i = 0, j = 0; i < PGTRACE_AUDIT_BUFFER_SIZE; i++)
+            {
+                AuditEvent *entry = &pgtrace_audit_buffer->entries[i];
+                if (entry->valid)
+                {
+                    memcpy(&snapshot[j], entry, sizeof(AuditEvent));
+                    j++;
+                    count++;
+                }
+            }
+
+            LWLockRelease(&lock->lock);
+        }
+
+        funcctx->user_fctx = snapshot;
+        num_entries_ptr = palloc(sizeof(uint32));
+        *num_entries_ptr = count;
+        funcctx->max_calls = count;
+        funcctx->attinmeta = (AttInMetadata *)num_entries_ptr;
+
+        MemoryContextSwitchTo(oldcontext);
+    }
+
+    funcctx = SRF_PERCALL_SETUP();
+    snapshot = (AuditEvent *)funcctx->user_fctx;
+
+    if (funcctx->call_cntr < funcctx->max_calls)
+    {
+        Datum values[7];
+        bool nulls[7] = {false, false, false, false, false, false, false};
+        HeapTuple tuple;
+        AuditEvent *entry = &snapshot[funcctx->call_cntr];
+        char op_type_str[32];
+
+        values[0] = UInt64GetDatum(entry->fingerprint);
+
+        /* Format operation type */
+        switch (entry->op_type)
+        {
+        case AUDIT_SELECT:
+            snprintf(op_type_str, sizeof(op_type_str), "SELECT");
+            break;
+        case AUDIT_INSERT:
+            snprintf(op_type_str, sizeof(op_type_str), "INSERT");
+            break;
+        case AUDIT_UPDATE:
+            snprintf(op_type_str, sizeof(op_type_str), "UPDATE");
+            break;
+        case AUDIT_DELETE:
+            snprintf(op_type_str, sizeof(op_type_str), "DELETE");
+            break;
+        case AUDIT_DDL:
+            snprintf(op_type_str, sizeof(op_type_str), "DDL");
+            break;
+        default:
+            snprintf(op_type_str, sizeof(op_type_str), "UNKNOWN");
+        }
+
+        values[1] = CStringGetDatum(op_type_str);
+        values[2] = CStringGetDatum(entry->user);
+        values[3] = CStringGetDatum(entry->database);
+        values[4] = Int64GetDatum(entry->rows_affected);
+        values[5] = Float8GetDatum(entry->duration_ms);
+        values[6] = TimestampTzGetDatum(entry->timestamp);
 
         tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
         SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));

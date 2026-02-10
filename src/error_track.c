@@ -75,11 +75,13 @@ find_or_create_error_entry(uint64 fingerprint, uint32 sqlstate)
 void pgtrace_error_record(uint64 fingerprint, uint32 sqlstate)
 {
     ErrorTrackEntry *entry;
+    LWLockPadded *lock;
 
     if (!pgtrace_error_buffer || fingerprint == 0 || sqlstate == 0)
         return;
 
-    LWLockAcquire(&pgtrace_error_buffer->lock, LW_EXCLUSIVE);
+    lock = GetNamedLWLockTranche("pgtrace_error_track");
+    LWLockAcquire(&lock->lock, LW_EXCLUSIVE);
 
     entry = find_or_create_error_entry(fingerprint, sqlstate);
     if (entry)
@@ -88,7 +90,7 @@ void pgtrace_error_record(uint64 fingerprint, uint32 sqlstate)
         entry->last_error_at = GetCurrentTimestamp();
     }
 
-    LWLockRelease(&pgtrace_error_buffer->lock);
+    LWLockRelease(&lock->lock);
 }
 
 /*
@@ -98,13 +100,15 @@ uint32
 pgtrace_error_count(void)
 {
     uint32 count;
+    LWLockPadded *lock;
 
     if (!pgtrace_error_buffer)
         return 0;
 
-    LWLockAcquire(&pgtrace_error_buffer->lock, LW_SHARED);
+    lock = GetNamedLWLockTranche("pgtrace_error_track");
+    LWLockAcquire(&lock->lock, LW_SHARED);
     count = pgtrace_error_buffer->num_entries;
-    LWLockRelease(&pgtrace_error_buffer->lock);
+    LWLockRelease(&lock->lock);
 
     return count;
 }

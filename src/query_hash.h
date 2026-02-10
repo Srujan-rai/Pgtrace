@@ -3,6 +3,9 @@
 #include <postgres.h>
 #include <utils/timestamp.h>
 
+#define PGTRACE_REQUEST_ID_LEN 64
+#define PGTRACE_LATENCY_BUCKETS 100 /* For p95, p99 calculation per query */
+
 /*
  * Per-query stats entry stored in shared memory.
  * Hash table maps fingerprint -> QueryStats.
@@ -24,6 +27,17 @@ typedef struct QueryStats
     uint64 empty_app_count;     /* Times executed with empty application_name */
     uint64 total_rows_scanned;  /* Cumulative rows examined */
     uint64 total_rows_returned; /* Cumulative rows returned */
+
+    /* Context Propagation (Production Grade) */
+    char last_request_id[PGTRACE_REQUEST_ID_LEN]; /* Latest request_id seen */
+    char last_app_name[64];                       /* Latest application_name */
+    char last_user[32];                           /* Latest database user */
+    char last_database[64];                       /* Latest database name */
+
+    /* Per-Query Percentiles (Tail Latency Detection) */
+    double latency_samples[PGTRACE_LATENCY_BUCKETS]; /* Ring buffer of samples */
+    uint32 sample_pos;                               /* Current write position */
+    uint32 sample_count;                             /* Total samples collected */
 } QueryStats;
 
 /*
@@ -38,7 +52,6 @@ typedef struct PgTraceQueryHash
     QueryStats entries[PGTRACE_HASH_TABLE_SIZE];
     uint64 num_entries; /* Current number of active entries */
     uint64 collisions;  /* Number of hash collisions */
-    LWLock lock;        /* Lock for concurrent access */
 } PgTraceQueryHash;
 
 extern PgTraceQueryHash *pgtrace_query_hash;
@@ -48,7 +61,8 @@ void pgtrace_hash_init(void);
 void pgtrace_hash_request_shmem(void);
 void pgtrace_hash_startup(void);
 void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
-                         const char *app_name, uint64 rows_scanned, uint64 rows_returned);
+                         const char *app_name, const char *user_name, const char *db_name,
+                         const char *req_id, uint64 rows_scanned, uint64 rows_returned);
 QueryStats *pgtrace_hash_get(uint64 fingerprint);
 uint64 pgtrace_hash_count(void);
 void pgtrace_hash_reset(void);
