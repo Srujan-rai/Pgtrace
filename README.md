@@ -201,25 +201,25 @@ Columns:
 
 Directly answers: "Which query keeps breaking and why?"
 
-### Structured Audit Events (Optional V2.5)
+### Structured Audit Events (v0.3+)
 
 For compliance or high-control environments, Pgtrace stores structured audit events in a bounded buffer:
 
 ```sql
 SELECT * FROM pgtrace_audit_events
-ORDER BY timestamp DESC
+ORDER BY event_timestamp DESC
 LIMIT 50;
 ```
 
 Columns:
 
-- `fingerprint` (bigint)
+- `fingerprint` (bigint) - Query identifier
 - `operation` (text) - SELECT/INSERT/UPDATE/DELETE/DDL/UNKNOWN
-- `db_user` (text)
-- `database` (text)
-- `rows_affected` (bigint)
-- `duration_ms` (double precision)
-- `timestamp` (timestamptz)
+- `db_user` (text) - Database user executing query
+- `database` (text) - Database name
+- `rows_affected` (bigint) - Rows affected by operation
+- `duration_ms` (double precision) - Execution time
+- `event_timestamp` (timestamptz) - When event occurred
 
 ### Core Metrics
 
@@ -273,9 +273,27 @@ sudo make install
 sudo systemctl restart postgresql@16-main
 ```
 
+### Version History
+
+**v0.3** (Current)
+
+- Alien/Shadow Query Detection (is_new, is_anomalous flags)
+- Context Propagation (last_app_name, last_user, last_database, last_request_id)
+- Per-query percentiles (p95_ms, p99_ms)
+- Structured audit events with operation tracking
+- Scan ratio efficiency metrics
+- All SRF memory context issues resolved
+
+**v0.2**
+
+- Basic query fingerprinting and metrics
+- Latency histogram
+- Error tracking with SQLSTATE codes
+- Slow query buffer
+
 ### Project Status
 
-Stable and functional for basic aggregate metrics. Contributions welcome for additional features (reset function, Prometheus output, per-user/db breakdowns).
+Stable and production-ready with comprehensive query tracking. All v0.3 features verified and tested. Contributions welcome for additional features (Prometheus output, per-user/db breakdowns, real-time alerting).
 
 ### Project Files
 
