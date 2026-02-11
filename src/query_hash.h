@@ -4,59 +4,47 @@
 #include <utils/timestamp.h>
 
 #define PGTRACE_REQUEST_ID_LEN 64
-#define PGTRACE_LATENCY_BUCKETS 100 /* For p95, p99 calculation per query */
+#define PGTRACE_LATENCY_BUCKETS 100
 
-/*
- * Per-query stats entry stored in shared memory.
- * Hash table maps fingerprint -> QueryStats.
- */
 typedef struct QueryStats
 {
-    uint64 fingerprint;     /* 64-bit hash of normalized query */
-    uint64 calls;           /* Number of executions */
-    uint64 errors;          /* Number of failed executions */
-    double total_time_ms;   /* Total execution time in milliseconds */
-    double max_time_ms;     /* Maximum execution time */
-    TimestampTz first_seen; /* First execution timestamp */
-    TimestampTz last_seen;  /* Last execution timestamp */
-    bool valid;             /* Entry is in use */
+    uint64 fingerprint;
+    uint64 calls;
+    uint64 errors;
+    double total_time_ms;
+    double max_time_ms;
+    TimestampTz first_seen;
+    TimestampTz last_seen;
+    bool valid;
 
-    /* Alien/Shadow Query Detection */
-    bool is_new;                /* First call (calls == 1) */
-    bool is_anomalous;          /* Latency or scan anomaly detected */
-    uint64 empty_app_count;     /* Times executed with empty application_name */
-    uint64 total_rows_scanned;  /* Cumulative rows examined */
-    uint64 total_rows_returned; /* Cumulative rows returned */
+    bool is_new;
+    bool is_anomalous;
+    uint64 empty_app_count;
+    uint64 total_rows_scanned;
+    uint64 total_rows_returned;
 
-    /* Context Propagation (Production Grade) */
-    char last_request_id[PGTRACE_REQUEST_ID_LEN]; /* Latest request_id seen */
-    char last_app_name[64];                       /* Latest application_name */
-    char last_user[32];                           /* Latest database user */
-    char last_database[64];                       /* Latest database name */
+    char last_request_id[PGTRACE_REQUEST_ID_LEN];
+    char last_app_name[64];
+    char last_user[32];
+    char last_database[64];
 
-    /* Per-Query Percentiles (Tail Latency Detection) */
-    double latency_samples[PGTRACE_LATENCY_BUCKETS]; /* Ring buffer of samples */
-    uint32 sample_pos;                               /* Current write position */
-    uint32 sample_count;                             /* Total samples collected */
+    double latency_samples[PGTRACE_LATENCY_BUCKETS];
+    uint32 sample_pos;
+    uint32 sample_count;
 } QueryStats;
 
-/*
- * Shared memory hash table configuration.
- * Fixed-size hash table with open addressing (linear probing).
- */
 #define PGTRACE_MAX_QUERIES 10000
-#define PGTRACE_HASH_TABLE_SIZE (PGTRACE_MAX_QUERIES * 2) /* 50% load factor */
+#define PGTRACE_HASH_TABLE_SIZE (PGTRACE_MAX_QUERIES * 2)
 
 typedef struct PgTraceQueryHash
 {
     QueryStats entries[PGTRACE_HASH_TABLE_SIZE];
-    uint64 num_entries; /* Current number of active entries */
-    uint64 collisions;  /* Number of hash collisions */
+    uint64 num_entries;
+    uint64 collisions;
 } PgTraceQueryHash;
 
 extern PgTraceQueryHash *pgtrace_query_hash;
 
-/* Hash table operations */
 void pgtrace_hash_init(void);
 void pgtrace_hash_request_shmem(void);
 void pgtrace_hash_startup(void);

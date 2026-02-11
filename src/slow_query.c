@@ -7,18 +7,12 @@
 
 SlowQueryRingBuffer *pgtrace_slow_query_buffer = NULL;
 
-/*
- * Request shared memory for slow query ring buffer.
- */
 void pgtrace_slow_query_request_shmem(void)
 {
     RequestAddinShmemSpace(sizeof(SlowQueryRingBuffer));
     RequestNamedLWLockTranche("pgtrace_slow_query", 1);
 }
 
-/*
- * Initialize slow query buffer in shared memory.
- */
 void pgtrace_slow_query_startup(void)
 {
     bool found;
@@ -38,10 +32,6 @@ void pgtrace_slow_query_startup(void)
     LWLockRelease(AddinShmemInitLock);
 }
 
-/*
- * Record a slow query entry in the ring buffer.
- * Overwrites oldest entries as buffer fills.
- */
 void pgtrace_slow_query_record(uint64 fingerprint, double duration_ms,
                                const char *app_name, const char *user,
                                int64 rows_processed)
@@ -63,7 +53,6 @@ void pgtrace_slow_query_record(uint64 fingerprint, double duration_ms,
     entry->rows_processed = rows_processed;
     entry->valid = true;
 
-    /* Safely copy application name and user */
     if (app_name)
         snprintf(entry->application_name, sizeof(entry->application_name), "%s", app_name);
     else
@@ -76,16 +65,12 @@ void pgtrace_slow_query_record(uint64 fingerprint, double duration_ms,
 
     pgtrace_slow_query_buffer->total_slow_queries++;
 
-    /* Advance ring buffer position */
     pgtrace_slow_query_buffer->write_pos =
         (pgtrace_slow_query_buffer->write_pos + 1) % PGTRACE_SLOW_QUERY_BUFFER_SIZE;
 
     LWLockRelease(&lock->lock);
 }
 
-/*
- * Get count of slow queries in buffer (entries > 0).
- */
 uint32
 pgtrace_slow_query_count(void)
 {

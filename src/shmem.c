@@ -9,16 +9,12 @@ void pgtrace_shmem_request(void)
     RequestAddinShmemSpace(sizeof(PgTraceMetrics));
     RequestNamedLWLockTranche("pgtrace", 1);
 
-    /* V2: Request space for query hash table */
     pgtrace_hash_request_shmem();
 
-    /* V2: Request space for slow query ring buffer */
     pgtrace_slow_query_request_shmem();
 
-    /* V2: Request space for error tracking buffer */
     pgtrace_error_request_shmem();
 
-    /* V2.5: Request space for audit event buffer */
     pgtrace_audit_request_shmem();
 }
 
@@ -41,15 +37,11 @@ void pgtrace_shmem_startup(void)
 
     LWLockRelease(AddinShmemInitLock);
 
-    /* V2: Initialize query hash table */
     pgtrace_hash_startup();
 
-    /* V2: Initialize slow query buffer */
     pgtrace_slow_query_startup();
 
-    /* V2: Initialize error tracking buffer */
     pgtrace_error_startup();
 
-    /* V2.5: Initialize audit event buffer */
     pgtrace_audit_startup();
 }

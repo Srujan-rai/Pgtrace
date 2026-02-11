@@ -58,17 +58,12 @@ find_entry(uint64 fingerprint)
     return NULL;
 }
 
-/*
- * Find or create entry in hash table.
- * Caller must hold exclusive lock.
- */
 static QueryStats *
 find_or_create_entry(uint64 fingerprint)
 {
     uint64 bucket = hash_bucket(fingerprint);
     uint64 i;
 
-    /* First pass: look for existing entry */
     for (i = 0; i < PGTRACE_HASH_TABLE_SIZE; i++)
     {
         uint64 idx = (bucket + i) % PGTRACE_HASH_TABLE_SIZE;
@@ -76,7 +71,6 @@ find_or_create_entry(uint64 fingerprint)
 
         if (!entry->valid)
         {
-            /* Found empty slot: initialize new entry */
             memset(entry, 0, sizeof(QueryStats));
             entry->fingerprint = fingerprint;
             entry->valid = true;
@@ -94,13 +88,9 @@ find_or_create_entry(uint64 fingerprint)
             return entry;
     }
 
-    /* Hash table full: return NULL */
     return NULL;
 }
 
-/*
- * Record query execution in hash table with alien detection, context propagation, and percentiles.
- */
 void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
                          const char *app_name, const char *user_name, const char *db_name,
                          const char *req_id, uint64 rows_scanned, uint64 rows_returned)
@@ -112,7 +102,6 @@ void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
     if (!pgtrace_query_hash)
         return;
 
-    /* Compute baseline before taking exclusive lock to avoid lock recursion */
     baseline_latency = pgtrace_hash_get_baseline_latency();
 
     LWLockPadded *lock = GetNamedLWLockTranche("pgtrace_query_hash");
@@ -133,7 +122,6 @@ void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
         if (duration_ms > entry->max_time_ms)
             entry->max_time_ms = duration_ms;
 
-        /* Track alien query indicators */
         entry->is_new = is_first_call;
 
         if (app_name == NULL || app_name[0] == '\0')
@@ -142,7 +130,6 @@ void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
         entry->total_rows_scanned += rows_scanned;
         entry->total_rows_returned += rows_returned;
 
-        /* Context Propagation (Production Grade) */
         if (app_name)
             snprintf(entry->last_app_name, sizeof(entry->last_app_name), "%s", app_name);
         if (user_name)
@@ -152,20 +139,16 @@ void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
         if (req_id)
             snprintf(entry->last_request_id, sizeof(entry->last_request_id), "%s", req_id);
 
-        /* Per-Query Percentiles (Tail Latency Detection) */
         entry->latency_samples[entry->sample_pos] = duration_ms;
         entry->sample_pos = (entry->sample_pos + 1) % PGTRACE_LATENCY_BUCKETS;
         if (entry->sample_count < PGTRACE_LATENCY_BUCKETS)
             entry->sample_count++;
 
-        /* Detect anomalous behavior */
         entry->is_anomalous = false;
 
-        /* Check: latency 3× baseline */
         if (baseline_latency > 0 && duration_ms > (baseline_latency * 3.0))
             entry->is_anomalous = true;
 
-        /* Check: scan ratio threshold (rows_scanned / rows_returned > 100) */
         if (rows_returned > 0 && ((double)rows_scanned / (double)rows_returned) > 100.0)
             entry->is_anomalous = true;
     }
@@ -173,9 +156,6 @@ void pgtrace_hash_record(uint64 fingerprint, double duration_ms, bool failed,
     LWLockRelease(&lock->lock);
 }
 
-/*
- * Get query stats by fingerprint (caller must copy under lock).
- */
 QueryStats *
 pgtrace_hash_get(uint64 fingerprint)
 {
@@ -193,9 +173,6 @@ pgtrace_hash_get(uint64 fingerprint)
     return entry;
 }
 
-/*
- * Get total number of tracked queries.
- */
 uint64
 pgtrace_hash_count(void)
 {
@@ -213,9 +190,6 @@ pgtrace_hash_count(void)
     return count;
 }
 
-/*
- * Reset all query stats in hash table.
- */
 void pgtrace_hash_reset(void)
 {
     LWLockPadded *lock;
@@ -231,10 +205,6 @@ void pgtrace_hash_reset(void)
     LWLockRelease(&lock->lock);
 }
 
-/*
- * Calculate baseline latency (median of average latencies across all queries).
- * Used for alien query detection.
- */
 double pgtrace_hash_get_baseline_latency(void)
 {
     double sum = 0.0;
@@ -245,7 +215,6 @@ double pgtrace_hash_get_baseline_latency(void)
     if (!pgtrace_query_hash)
         return 0.0;
 
-    /* Compute mean average latency across all queries (simplified baseline) */
     lock = GetNamedLWLockTranche("pgtrace_query_hash");
     LWLockAcquire(&lock->lock, LW_SHARED);
 
