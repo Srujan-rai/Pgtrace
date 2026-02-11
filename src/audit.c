@@ -7,18 +7,12 @@
 
 AuditEventBuffer *pgtrace_audit_buffer = NULL;
 
-/*
- * Request shared memory for audit event buffer.
- */
 void pgtrace_audit_request_shmem(void)
 {
     RequestAddinShmemSpace(sizeof(AuditEventBuffer));
     RequestNamedLWLockTranche("pgtrace_audit", 1);
 }
 
-/*
- * Initialize audit event buffer in shared memory.
- */
 void pgtrace_audit_startup(void)
 {
     bool found;
@@ -38,10 +32,6 @@ void pgtrace_audit_startup(void)
     LWLockRelease(AddinShmemInitLock);
 }
 
-/*
- * Record an audit event in the circular buffer.
- * Overwrites oldest entries as buffer fills.
- */
 void pgtrace_audit_record(uint64 fingerprint, AuditOpType op_type,
                           const char *user, const char *database,
                           int64 rows_affected, double duration_ms)
@@ -64,7 +54,6 @@ void pgtrace_audit_record(uint64 fingerprint, AuditOpType op_type,
     entry->timestamp = GetCurrentTimestamp();
     entry->valid = true;
 
-    /* Safely copy user and database */
     if (user)
         snprintf(entry->user, sizeof(entry->user), "%s", user);
     else
@@ -77,16 +66,12 @@ void pgtrace_audit_record(uint64 fingerprint, AuditOpType op_type,
 
     pgtrace_audit_buffer->total_events++;
 
-    /* Advance ring buffer position */
     pgtrace_audit_buffer->write_pos =
         (pgtrace_audit_buffer->write_pos + 1) % PGTRACE_AUDIT_BUFFER_SIZE;
 
     LWLockRelease(&lock->lock);
 }
 
-/*
- * Get count of audit events in buffer.
- */
 uint32
 pgtrace_audit_count(void)
 {

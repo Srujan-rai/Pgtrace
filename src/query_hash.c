@@ -6,18 +6,12 @@
 
 PgTraceQueryHash *pgtrace_query_hash = NULL;
 
-/*
- * Request shared memory for the query hash table.
- */
 void pgtrace_hash_request_shmem(void)
 {
     RequestAddinShmemSpace(sizeof(PgTraceQueryHash));
     RequestNamedLWLockTranche("pgtrace_query_hash", 1);
 }
 
-/*
- * Initialize hash table in shared memory.
- */
 void pgtrace_hash_startup(void)
 {
     bool found;
@@ -37,19 +31,12 @@ void pgtrace_hash_startup(void)
     LWLockRelease(AddinShmemInitLock);
 }
 
-/*
- * Hash function: simple modulo for fingerprint -> bucket.
- */
 static inline uint64
 hash_bucket(uint64 fingerprint)
 {
     return fingerprint % PGTRACE_HASH_TABLE_SIZE;
 }
 
-/*
- * Find entry in hash table or return NULL.
- * Caller must hold lock.
- */
 static QueryStats *
 find_entry(uint64 fingerprint)
 {

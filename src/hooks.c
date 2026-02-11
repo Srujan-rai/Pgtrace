@@ -19,13 +19,11 @@ pgtrace_ExecutorStart(QueryDesc *queryDesc, int eflags)
 {
     query_start_time = GetCurrentTimestamp();
 
-    /* V2: Compute fingerprint from query source text */
     if (queryDesc->sourceText)
         current_fingerprint = pgtrace_compute_fingerprint(queryDesc->sourceText);
     else
         current_fingerprint = 0;
 
-    /* Set fingerprint for error tracking */
     pgtrace_set_current_fingerprint(current_fingerprint);
 
     if (prev_ExecutorStart)
@@ -54,10 +52,8 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
     TimestampDifference(query_start_time, end, &secs, &usecs);
     ms = secs * 1000 + usecs / 1000;
 
-    /* V1: Global metrics */
     pgtrace_record_query(ms, false);
 
-    /* V2: Per-query tracking with alien detection */
     if (current_fingerprint != 0)
     {
         app_name = application_name ? application_name : "";
@@ -66,31 +62,17 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
         req_id = pgtrace_request_id ? pgtrace_request_id : "";
         rows_returned = (queryDesc->estate && queryDesc->estate->es_processed) ? queryDesc->estate->es_processed : 0;
 
-        /*
-         * Track rows_scanned vs rows_returned (Optimization Gold)
-         * Extract tuple count from executor state for accurate scan accounting.
-         * This identifies:
-         * - Bad index usage (high ratio = full table scan instead of index)
-         * - Inefficient filters (high ratio = many rows examined before filter)
-         * - Sequential scans that could use indexes
-         */
         rows_scanned = rows_returned;
         if (queryDesc->estate && queryDesc->planstate)
         {
             plan_state = queryDesc->planstate;
 
-            /*
-             * Use instrumentation data if available.
-             * Instrumentation tracks actual rows examined at each plan node.
-             */
-            if (plan_state->instrument)
+                       if (plan_state->instrument)
             {
-                /* Use actual tuple count from instrumentation */
                 rows_scanned = plan_state->instrument->tuplecount;
             }
             else
             {
-                /* Fallback: use rows processed (conservative estimate) */
                 rows_scanned = rows_returned;
             }
         }
@@ -99,14 +81,12 @@ pgtrace_ExecutorEnd(QueryDesc *queryDesc)
                             app_name, user_name, db_name, req_id,
                             rows_scanned, rows_returned);
 
-        /* V2: Record slow queries */
         if (ms > pgtrace_slow_query_ms)
         {
             pgtrace_slow_query_record(current_fingerprint, (double)ms,
                                       app_name, user_name, rows_returned);
         }
 
-        /* V2.5: Record audit event if enabled */
         if (pgtrace_enabled)
         {
             AuditOpType op_type = AUDIT_UNKNOWN;

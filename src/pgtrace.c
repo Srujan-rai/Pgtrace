@@ -39,15 +39,12 @@ void _PG_init(void)
     prev_shmem_startup_hook = shmem_startup_hook;
     shmem_startup_hook = pgtrace_shmem_startup_hook;
     pgtrace_init_hooks();
-    /* Error hook disabled pending debugging */
-    /* pgtrace_init_error_hook(); */
 }
 
 void _PG_fini(void)
 {
     pgtrace_remove_hooks();
-    /* Error hook disabled pending debugging */
-    /* pgtrace_remove_error_hook(); */
+
     shmem_request_hook = prev_shmem_request_hook;
     shmem_startup_hook = prev_shmem_startup_hook;
 }

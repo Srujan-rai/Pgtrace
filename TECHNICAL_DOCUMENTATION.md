@@ -5,6 +5,7 @@
 PgTrace is a production-grade PostgreSQL extension that provides real-time query intelligence through non-intrusive hooks into PostgreSQL's executor. It captures detailed per-query metrics, anomaly detection, and audit trails without requiring code changes to applications.
 
 **Core Value Proposition:**
+
 - **Real-time visibility** into query performance and patterns
 - **Anomaly detection** for suspicious/new queries (security/optimization)
 - **Context propagation** for production request tracking
@@ -44,9 +45,11 @@ PgTrace is a production-grade PostgreSQL extension that provides real-time query
 ## File-by-File Technical Breakdown
 
 ### 1. **pgtrace.c** - Extension Entry Point
+
 **Purpose:** Module initialization and lifecycle management
 
 **Key Functions:**
+
 - `_PG_init()` - Called when extension loads
   - Registers hooks (ExecutorStart, ExecutorRun, ExecutorFinish)
   - Defines GUC parameters (enabled, slow_query_ms, request_id)
@@ -60,6 +63,7 @@ PgTrace is a production-grade PostgreSQL extension that provides real-time query
 ---
 
 ### 2. **hooks.c** - Query Execution Interception
+
 **Purpose:** Intercept and record query execution at three critical points
 
 **Hook Points:**
@@ -83,6 +87,7 @@ ExecutorFinish Hook
 ```
 
 **Key Structures:**
+
 ```c
 QueryStats {
     uint64 fingerprint;         // 64-bit hash of normalized query
@@ -92,22 +97,22 @@ QueryStats {
     double max_time_ms;         // Peak execution time
     TimestampTz first_seen;     // First execution timestamp
     TimestampTz last_seen;      // Last execution timestamp
-    
+
     // v0.3: Anomaly Detection
     bool is_new;                // First seen in this session?
     bool is_anomalous;          // 3x slower than baseline?
     uint64 empty_app_count;     // Executions without app_name
-    
+
     // v0.3: Scan Efficiency
     uint64 total_rows_scanned;
     uint64 total_rows_returned;
-    
+
     // v0.3: Context Propagation
     char last_app_name[64];     // Last application_name
     char last_user[64];         // Last database user
     char last_database[64];     // Last database
     char last_request_id[64];   // GUC-set request ID
-    
+
     // v0.3: Per-Query Percentiles
     double latency_samples[MAX_SAMPLES];  // Ring buffer of execution times
     uint32 sample_count;        // Number of samples collected
@@ -115,6 +120,7 @@ QueryStats {
 ```
 
 **Critical Implementation Notes:**
+
 - Uses LWLock for thread-safe access to hash table
 - Acquires lock in EXCLUSIVE mode during updates (brief hold)
 - Acquires lock in SHARED mode during reads (longer, non-blocking)
@@ -123,9 +129,11 @@ QueryStats {
 ---
 
 ### 3. **query_hash.c** - Query Fingerprinting & Storage
+
 **Purpose:** Hash-based deduplication and statistics aggregation
 
 **Main Data Structure:**
+
 ```c
 QueryHashTable {
     uint32 num_entries;           // Current count
@@ -137,6 +145,7 @@ QueryHashTable {
 **Key Functions:**
 
 `pgtrace_hash_record()` - Record a query execution
+
 - Fingerprints normalized query text
 - Looks up or creates entry in hash table
 - Updates statistics atomically
@@ -145,10 +154,12 @@ QueryHashTable {
   - `is_anomalous = 1` if latency > 3× baseline
 
 `pgtrace_hash_lookup()` - Find existing entry
+
 - Used for viewing/exporting stats
 - No locking overhead
 
 `pgtrace_hash_count()` - Return unique query count
+
 - Used by pgtrace_query_count() function
 
 **Hash Function:** FNV-1a 64-bit hash of normalized query
@@ -156,9 +167,11 @@ QueryHashTable {
 ---
 
 ### 4. **shmem.c** - Shared Memory Management
+
 **Purpose:** Allocate and initialize all shared memory structures
 
 **Shared Memory Layout:**
+
 ```
 ┌─────────────────────────────────────────┐
 │ LWLock Tranche Management               │
@@ -180,6 +193,7 @@ QueryHashTable {
 ```
 
 **Critical Design:**
+
 - All buffers pre-allocated on startup
 - No dynamic allocation in fast path
 - Bounded buffer prevents memory bloat
@@ -188,9 +202,11 @@ QueryHashTable {
 ---
 
 ### 5. **fingerprint.c** - Query Normalization
+
 **Purpose:** Convert raw SQL to deterministic fingerprint
 
 **Normalization Rules:**
+
 ```
 SELECT * FROM users WHERE id = 123;  →  fingerprint_hash
 SELECT * FROM users WHERE id = 456;  →  same_fingerprint_hash
@@ -201,6 +217,7 @@ SELECT COUNT(*);                      ≠ SELECT SUM(col);
 ```
 
 **Key Function:** `pgtrace_hash_normalize_query()`
+
 - Parses query using PostgreSQL parser
 - Walks parse tree
 - Extracts query structure (not values)
@@ -212,9 +229,11 @@ SELECT COUNT(*);                      ≠ SELECT SUM(col);
 ---
 
 ### 6. **metrics.c** - SQL Interface (SRF Functions)
+
 **Purpose:** Export metrics as SQL-queryable views
 
 **Set-Returning Functions (SRF Pattern):**
+
 ```c
 // First call - initialization
 SRF_IS_FIRSTCALL()
@@ -235,6 +254,7 @@ SRF_RETURN_DONE()
 ```
 
 **Critical Fix (v0.3):** Memory context handling for text columns
+
 ```c
 // WRONG - returns pointer to freed memory:
 values[0] = CStringGetDatum(entry->text_field);
@@ -248,31 +268,38 @@ MemoryContextSwitchTo(oldcxt);
 **Functions:**
 
 `pgtrace_internal_query_stats()` - Per-query metrics
+
 - 19 columns: fingerprint, calls, errors, timings, anomaly flags, context, percentiles
 - Returns all tracked queries with full stats
 
 `pgtrace_internal_audit_events()` - Audit trail
+
 - 7 columns: fingerprint, operation type, user, database, rows, duration, timestamp
 - Returns structured audit log for compliance
 
 `pgtrace_internal_failing_queries()` - Error analysis
+
 - 4 columns: fingerprint, SQLSTATE code, error count, last error time
 - Returns queries that have failed with error codes
 
 `pgtrace_query_count()` - Scalar function
+
 - Returns count of unique fingerprints
 - Used for quick metric
 
 `pgtrace_reset()` - Clear statistics
+
 - Zeros all counters
 - Used for baseline establishment
 
 ---
 
 ### 7. **slow_query.c** - Recent Slow Query Ring Buffer
+
 **Purpose:** Store last N slow queries for detailed analysis
 
 **Data Structure:**
+
 ```c
 SlowQueryBuffer {
     uint32 write_pos;           // Ring buffer write index
@@ -291,21 +318,25 @@ SlowQueryEntry {
 ```
 
 **Write Pattern:**
+
 ```
 Write entry → write_pos++
 If write_pos >= capacity: write_pos = 0 (wrap)
 ```
 
 **Storage:** Last N slow queries (by threshold)
+
 - Useful for post-incident analysis
 - Bounded size prevents unbounded memory growth
 
 ---
 
 ### 8. **error_track.c** - Error Statistics Buffer
+
 **Purpose:** Track which queries fail and with what SQLSTATE codes
 
 **Data Structure:**
+
 ```c
 ErrorTrackEntry {
     uint64 fingerprint;         // Query identifier
@@ -317,6 +348,7 @@ ErrorTrackEntry {
 ```
 
 **SQLSTATE Mapping:**
+
 - PostgreSQL error codes → numeric SQLSTATE
 - Examples:
   - 23505 = Unique violation
@@ -328,9 +360,11 @@ ErrorTrackEntry {
 ---
 
 ### 9. **audit.c** - Audit Events Buffer
+
 **Purpose:** Store structured audit trail for compliance/security
 
 **Data Structure:**
+
 ```c
 AuditEvent {
     uint64 fingerprint;         // Query ID
@@ -353,23 +387,26 @@ enum AuditOpType {
 ```
 
 **Ring Buffer:** Stores last N audit events
+
 - Bounded by PGTRACE_AUDIT_BUFFER_SIZE
 - Used for compliance/forensics
 
 ---
 
 ### 10. **guc.c** - Configuration Parameters
+
 **Purpose:** Define and manage GUC (Grand Unified Configuration) parameters
 
 **Parameters:**
 
-| Name | Type | Default | Purpose |
-|------|------|---------|---------|
-| `pgtrace.enabled` | bool | on | Enable/disable tracing |
-| `pgtrace.slow_query_ms` | int | 200 | Slow query threshold |
-| `pgtrace.request_id` | string | NULL | Session request identifier |
+| Name                    | Type   | Default | Purpose                    |
+| ----------------------- | ------ | ------- | -------------------------- |
+| `pgtrace.enabled`       | bool   | on      | Enable/disable tracing     |
+| `pgtrace.slow_query_ms` | int    | 200     | Slow query threshold       |
+| `pgtrace.request_id`    | string | NULL    | Session request identifier |
 
 **Usage:**
+
 ```sql
 SET pgtrace.request_id = 'order-12345';
 SELECT * FROM pgtrace_query_stats;
@@ -385,58 +422,72 @@ SELECT * FROM pgtrace_query_stats;
 ### Views (pgtrace--0.3.sql)
 
 **pgtrace_query_stats**
+
 ```sql
 SELECT * FROM pgtrace_internal_query_stats()
 ORDER BY total_time_ms DESC;
 ```
+
 - Main query analytics view
 - 19 columns with full context and percentiles
 
 **pgtrace_alien_queries**
+
 ```sql
 SELECT * FROM pgtrace_internal_query_stats()
 WHERE is_new OR is_anomalous
 ORDER BY is_new DESC, is_anomalous DESC, avg_time_ms DESC;
 ```
+
 - Filtered view for anomaly detection
 - New queries (potential intrusions)
 - Anomalous queries (performance degradation)
 
 **pgtrace_audit_events**
+
 ```sql
 SELECT * FROM pgtrace_internal_audit_events()
 ORDER BY event_timestamp DESC;
 ```
+
 - Compliance/forensics view
 - All DML/DDL with user/timestamp
 
 **pgtrace_failing_queries**
+
 ```sql
 SELECT * FROM pgtrace_internal_failing_queries()
 ORDER BY error_count DESC;
 ```
+
 - Error analysis
 - SQLSTATE codes with failure counts
 
 **pgtrace_metrics**
+
 ```sql
 SELECT * FROM pgtrace_internal_metrics();
 ```
+
 - Global counters
 - Total queries, failed, slow
 
 **pgtrace_latency_histogram**
+
 ```sql
 SELECT * FROM pgtrace_internal_latency()
 ORDER BY bucket;
 ```
+
 - Distribution of query latencies
 - 6 buckets: 0-1ms, 1-10ms, 10-100ms, 100-1000ms, 1000-10000ms, 10000+ms
 
 **pgtrace_slow_queries**
+
 ```sql
 SELECT * FROM pgtrace_internal_slow_queries();
 ```
+
 - Recent slow queries
 - Raw timing data with application context
 
@@ -447,6 +498,7 @@ SELECT * FROM pgtrace_internal_slow_queries();
 ### Overhead Analysis
 
 **Per-Query Overhead:**
+
 - Hook registration: <1μs (pointer lookup)
 - Fingerprinting: 50-200μs (query parsing, hash calculation)
 - Hash table lookup: 1-5μs (hash function, collision resolution)
@@ -455,6 +507,7 @@ SELECT * FROM pgtrace_internal_slow_queries();
 - **Total: 100-300μs per query** (~0.1-0.3ms)
 
 **Memory Footprint:**
+
 - Query hash table: ~50MB (1M entries × 50 bytes avg)
 - Slow query buffer: 1MB (1000 entries × 1KB)
 - Error track buffer: 500KB (10000 entries)
@@ -462,6 +515,7 @@ SELECT * FROM pgtrace_internal_slow_queries();
 - **Total: ~60MB** (configurable)
 
 **Lock Contention:**
+
 - Brief exclusive lock (update phase): <10μs
 - Typical workload: <0.1% lock wait time
 - Read-heavy workloads: negligible (SHARED locks, no blocking)
@@ -488,6 +542,7 @@ LWLockRelease(&lock->lock);
 ```
 
 **Why Named Tranches?**
+
 - PostgreSQL 15+ requires non-embedded LWLocks in shared memory
 - Tranches pre-allocated by PostgreSQL core
 - Avoids initialization race conditions
@@ -528,12 +583,14 @@ FNV-1a Hash:
 ### 1. Alien/Shadow Query Detection
 
 **is_new Flag:**
+
 - Set when fingerprint first appears
 - Persists across queries
 - Indicates potential unauthorized access
 - Reset on `pgtrace_reset()`
 
 **is_anomalous Flag:**
+
 - Calculated as: `current_avg_time > 3 × historical_avg_time`
 - Detects performance degradation
 - Useful for identifying query plan changes
@@ -542,6 +599,7 @@ FNV-1a Hash:
 ### 2. Context Propagation
 
 **Implementation:**
+
 ```c
 // In ExecutorStart hook
 strcpy(entry->last_app_name, application_name);
@@ -551,6 +609,7 @@ strcpy(entry->last_request_id, pgtrace_request_id_guc);
 ```
 
 **Use Case:** Production request tracing
+
 ```
 Application sets: SET pgtrace.request_id = 'REQ-2024-001'
 ↓
@@ -564,6 +623,7 @@ Link database metrics back to application transactions
 ### 3. Per-Query Percentiles (p95, p99)
 
 **Ring Buffer Implementation:**
+
 ```c
 double latency_samples[MAX_SAMPLES];  // Fixed 256-entry ring buffer
 uint32 sample_index;                  // Write position
@@ -587,16 +647,19 @@ p99 = samples[(int)(0.99 * sample_count)];
 ## Security Considerations
 
 ### Input Validation
+
 - Query text: Already validated by PostgreSQL parser
 - Fingerprint: Cryptographic hash (no injection risk)
 - Context fields: Bounded string buffers (no overflow)
 
 ### Access Control
+
 - Views: Queryable by any user (read-only)
 - GUCs: Settable per-session (no privilege escalation)
 - Shared memory: Protected by LWLocks (no race conditions)
 
 ### Audit Trail
+
 - All DML/DDL logged with user/timestamp
 - Bounded buffer prevents DoS
 - Useful for forensic analysis
@@ -608,9 +671,11 @@ p99 = samples[(int)(0.99 * sample_count)];
 ### Common Issues
 
 **Q: Extension fails to load**
+
 ```
 ERROR: could not load library: undefined symbol
 ```
+
 **A:** Run `sudo make install && sudo systemctl restart postgresql`
 
 **Q: "timestamp" is reserved keyword error**
@@ -618,10 +683,12 @@ ERROR: could not load library: undefined symbol
 
 **Q: Hanging on SELECT from view**
 **A:** Memory context fix required (v0.3 resolved)
+
 - Ensure cstring_to_text() calls wrapped in multi_call_memory_ctx
 
 **Q: High lock contention**
 **A:** Reduce sampling rate or increase buffer size
+
 - Lock held only for 10-50μs per query
 - Read operations use SHARED locks (non-blocking)
 

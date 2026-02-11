@@ -3,10 +3,6 @@
 #include <utils/builtins.h>
 #include "fingerprint.h"
 
-/*
- * Normalize query: strip literals, collapse whitespace, lowercase keywords.
- * Minimal implementation: strips string/numeric literals and collapses whitespace.
- */
 char *
 pgtrace_normalize_query(const char *query_text)
 {
@@ -25,13 +21,11 @@ pgtrace_normalize_query(const char *query_text)
     {
         char c = *src;
 
-        /* Handle string literals */
         if (c == '\'')
         {
             in_string = !in_string;
             if (!in_string)
             {
-                /* End of string: replace entire literal with '?' */
                 *dst++ = '?';
                 prev_space = false;
             }
@@ -45,7 +39,6 @@ pgtrace_normalize_query(const char *query_text)
             continue;
         }
 
-        /* Handle numeric literals */
         if (isdigit((unsigned char)c))
         {
             if (!in_number)
@@ -62,7 +55,6 @@ pgtrace_normalize_query(const char *query_text)
             in_number = false;
         }
 
-        /* Collapse whitespace */
         if (isspace((unsigned char)c))
         {
             if (!prev_space)
@@ -74,13 +66,11 @@ pgtrace_normalize_query(const char *query_text)
             continue;
         }
 
-        /* Copy regular character */
         *dst++ = tolower((unsigned char)c);
         prev_space = false;
         src++;
     }
 
-    /* Trim trailing space */
     if (dst > normalized && *(dst - 1) == ' ')
         dst--;
 
@@ -88,10 +78,6 @@ pgtrace_normalize_query(const char *query_text)
     return normalized;
 }
 
-/*
- * Compute 64-bit FNV-1a hash for fingerprint.
- * FNV-1a is fast, simple, and good enough for query deduplication.
- */
 uint64
 pgtrace_compute_fingerprint(const char *query_text)
 {

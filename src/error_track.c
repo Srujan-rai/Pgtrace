@@ -6,18 +6,12 @@
 
 ErrorTrackBuffer *pgtrace_error_buffer = NULL;
 
-/*
- * Request shared memory for error tracking buffer.
- */
 void pgtrace_error_request_shmem(void)
 {
     RequestAddinShmemSpace(sizeof(ErrorTrackBuffer));
     RequestNamedLWLockTranche("pgtrace_error_track", 1);
 }
 
-/*
- * Initialize error buffer in shared memory.
- */
 void pgtrace_error_startup(void)
 {
     bool found;
@@ -37,16 +31,11 @@ void pgtrace_error_startup(void)
     LWLockRelease(AddinShmemInitLock);
 }
 
-/*
- * Find or create error entry for (fingerprint, sqlstate) pair.
- * Caller must hold exclusive lock.
- */
 static ErrorTrackEntry *
 find_or_create_error_entry(uint64 fingerprint, uint32 sqlstate)
 {
     uint32 i;
 
-    /* Look for existing entry */
     for (i = 0; i < pgtrace_error_buffer->num_entries; i++)
     {
         ErrorTrackEntry *entry = &pgtrace_error_buffer->entries[i];
@@ -54,7 +43,6 @@ find_or_create_error_entry(uint64 fingerprint, uint32 sqlstate)
             return entry;
     }
 
-    /* Create new entry if space available */
     if (pgtrace_error_buffer->num_entries < PGTRACE_ERROR_BUFFER_SIZE)
     {
         ErrorTrackEntry *entry = &pgtrace_error_buffer->entries[pgtrace_error_buffer->num_entries];
@@ -69,9 +57,6 @@ find_or_create_error_entry(uint64 fingerprint, uint32 sqlstate)
     return NULL;
 }
 
-/*
- * Record an error for a query.
- */
 void pgtrace_error_record(uint64 fingerprint, uint32 sqlstate)
 {
     ErrorTrackEntry *entry;
@@ -93,9 +78,6 @@ void pgtrace_error_record(uint64 fingerprint, uint32 sqlstate)
     LWLockRelease(&lock->lock);
 }
 
-/*
- * Get count of tracked errors.
- */
 uint32
 pgtrace_error_count(void)
 {

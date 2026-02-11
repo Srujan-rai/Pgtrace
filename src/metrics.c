@@ -4,10 +4,6 @@
 #include <utils/builtins.h>
 #include "pgtrace.h"
 
-/*
- * Calculate percentile from sorted samples.
- * Assumes samples array is already sorted.
- */
 static double
 calculate_percentile(double *samples, uint32 count, double percentile)
 {
@@ -26,9 +22,6 @@ calculate_percentile(double *samples, uint32 count, double percentile)
     return samples[idx];
 }
 
-/*
- * Compare function for qsort.
- */
 static int
 compare_doubles(const void *a, const void *b)
 {
@@ -177,10 +170,6 @@ PGDLLEXPORT Datum pgtrace_internal_latency(PG_FUNCTION_ARGS)
     SRF_RETURN_DONE(funcctx);
 }
 
-/*
- * V2: pgtrace_internal_query_stats()
- * Returns per-query statistics from the hash table.
- */
 PG_FUNCTION_INFO_V1(pgtrace_internal_query_stats);
 
 PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
@@ -205,7 +194,6 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
 
         funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
-        /* Take snapshot of hash table under lock */
         count = 0;
         snapshot = palloc0(PGTRACE_MAX_QUERIES * sizeof(QueryStats));
 
@@ -232,8 +220,7 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
         num_entries_ptr = palloc(sizeof(uint64));
         *num_entries_ptr = count;
         funcctx->max_calls = count;
-        funcctx->attinmeta = (AttInMetadata *)num_entries_ptr; /* Abuse attinmeta to store count */
-
+        funcctx->attinmeta = (AttInMetadata *)num_entries_ptr;
         MemoryContextSwitchTo(oldcontext);
     }
 
@@ -264,7 +251,6 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
         values[6] = TimestampTzGetDatum(entry->first_seen);
         values[7] = TimestampTzGetDatum(entry->last_seen);
 
-        /* Alien/Shadow Query Detection fields */
         values[8] = BoolGetDatum(entry->is_new);
         values[9] = BoolGetDatum(entry->is_anomalous);
         values[10] = UInt64GetDatum(entry->empty_app_count);
@@ -276,7 +262,6 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
 
         values[12] = UInt64GetDatum(entry->total_rows_returned);
 
-        /* Context propagation fields - convert to text in proper memory context */
         MemoryContext oldcxt = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
         values[13] = PointerGetDatum(cstring_to_text(entry->last_app_name));
         values[14] = PointerGetDatum(cstring_to_text(entry->last_user));
@@ -284,7 +269,6 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
         values[16] = PointerGetDatum(cstring_to_text(entry->last_request_id));
         MemoryContextSwitchTo(oldcxt);
 
-        /* Per-query percentiles (p95, p99) */
         if (sample_count > 0)
         {
             double *samples = palloc(sizeof(double) * sample_count);
@@ -305,10 +289,6 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
     SRF_RETURN_DONE(funcctx);
 }
 
-/*
- * pgtrace_query_count()
- * Returns the number of unique queries being tracked.
- */
 PG_FUNCTION_INFO_V1(pgtrace_query_count);
 
 PGDLLEXPORT Datum pgtrace_query_count(PG_FUNCTION_ARGS)
@@ -317,10 +297,6 @@ PGDLLEXPORT Datum pgtrace_query_count(PG_FUNCTION_ARGS)
     PG_RETURN_INT64(count);
 }
 
-/*
- * pgtrace_reset()
- * Clears all query stats in the hash table.
- */
 PG_FUNCTION_INFO_V1(pgtrace_reset);
 
 PGDLLEXPORT Datum pgtrace_reset(PG_FUNCTION_ARGS)
@@ -329,10 +305,6 @@ PGDLLEXPORT Datum pgtrace_reset(PG_FUNCTION_ARGS)
     PG_RETURN_VOID();
 }
 
-/*
- * pgtrace_internal_failing_queries()
- * Returns queries that failed with error tracking.
- */
 PG_FUNCTION_INFO_V1(pgtrace_internal_failing_queries);
 
 PGDLLEXPORT Datum pgtrace_internal_failing_queries(PG_FUNCTION_ARGS)
@@ -357,7 +329,6 @@ PGDLLEXPORT Datum pgtrace_internal_failing_queries(PG_FUNCTION_ARGS)
 
         funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
-        /* Take snapshot of error buffer under lock */
         count = 0;
         snapshot = palloc0(PGTRACE_ERROR_BUFFER_SIZE * sizeof(ErrorTrackEntry));
 
@@ -403,10 +374,8 @@ PGDLLEXPORT Datum pgtrace_internal_failing_queries(PG_FUNCTION_ARGS)
 
         values[0] = UInt64GetDatum(entry->fingerprint);
 
-        /* Format SQLSTATE as 5-char string (e.g., "23505") */
         snprintf(sqlstate_str, sizeof(sqlstate_str), "%05u", entry->sqlstate);
 
-        /* Convert text field in proper memory context */
         oldcxt = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
         values[1] = PointerGetDatum(cstring_to_text(sqlstate_str));
         MemoryContextSwitchTo(oldcxt);
@@ -421,10 +390,6 @@ PGDLLEXPORT Datum pgtrace_internal_failing_queries(PG_FUNCTION_ARGS)
     SRF_RETURN_DONE(funcctx);
 }
 
-/*
- * pgtrace_internal_slow_queries()
- * Returns recent slow queries from the ring buffer.
- */
 PG_FUNCTION_INFO_V1(pgtrace_internal_slow_queries);
 
 PGDLLEXPORT Datum pgtrace_internal_slow_queries(PG_FUNCTION_ARGS)
@@ -449,7 +414,6 @@ PGDLLEXPORT Datum pgtrace_internal_slow_queries(PG_FUNCTION_ARGS)
 
         funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
-        /* Take snapshot of ring buffer under lock */
         count = 0;
         snapshot = palloc0(PGTRACE_SLOW_QUERY_BUFFER_SIZE * sizeof(SlowQueryEntry));
 
@@ -505,10 +469,6 @@ PGDLLEXPORT Datum pgtrace_internal_slow_queries(PG_FUNCTION_ARGS)
     SRF_RETURN_DONE(funcctx);
 }
 
-/*
- * pgtrace_internal_audit_events()
- * Returns structured audit events from the audit buffer (V2.5).
- */
 PG_FUNCTION_INFO_V1(pgtrace_internal_audit_events);
 
 PGDLLEXPORT Datum pgtrace_internal_audit_events(PG_FUNCTION_ARGS)
@@ -533,7 +493,6 @@ PGDLLEXPORT Datum pgtrace_internal_audit_events(PG_FUNCTION_ARGS)
 
         funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
-        /* Take snapshot of audit buffer under lock */
         count = 0;
         snapshot = palloc0(PGTRACE_AUDIT_BUFFER_SIZE * sizeof(AuditEvent));
 
@@ -579,7 +538,6 @@ PGDLLEXPORT Datum pgtrace_internal_audit_events(PG_FUNCTION_ARGS)
 
         values[0] = UInt64GetDatum(entry->fingerprint);
 
-        /* Format operation type */
         switch (entry->op_type)
         {
         case AUDIT_SELECT:
@@ -601,7 +559,6 @@ PGDLLEXPORT Datum pgtrace_internal_audit_events(PG_FUNCTION_ARGS)
             snprintf(op_type_str, sizeof(op_type_str), "UNKNOWN");
         }
 
-        /* Convert text fields in proper memory context */
         oldcxt = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
         values[1] = PointerGetDatum(cstring_to_text(op_type_str));
         values[2] = PointerGetDatum(cstring_to_text(entry->user));
