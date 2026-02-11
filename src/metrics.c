@@ -1,6 +1,7 @@
 #include <postgres.h>
 #include <funcapi.h>
 #include <stdlib.h>
+#include <utils/builtins.h>
 #include "pgtrace.h"
 
 /*
@@ -275,11 +276,13 @@ PGDLLEXPORT Datum pgtrace_internal_query_stats(PG_FUNCTION_ARGS)
 
         values[12] = UInt64GetDatum(entry->total_rows_returned);
 
-        /* Context propagation fields */
-        values[13] = CStringGetDatum(entry->last_app_name);
-        values[14] = CStringGetDatum(entry->last_user);
-        values[15] = CStringGetDatum(entry->last_database);
-        values[16] = CStringGetDatum(entry->last_request_id);
+        /* Context propagation fields - convert to text in proper memory context */
+        MemoryContext oldcxt = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+        values[13] = PointerGetDatum(cstring_to_text(entry->last_app_name));
+        values[14] = PointerGetDatum(cstring_to_text(entry->last_user));
+        values[15] = PointerGetDatum(cstring_to_text(entry->last_database));
+        values[16] = PointerGetDatum(cstring_to_text(entry->last_request_id));
+        MemoryContextSwitchTo(oldcxt);
 
         /* Per-query percentiles (p95, p99) */
         if (sample_count > 0)
@@ -396,12 +399,17 @@ PGDLLEXPORT Datum pgtrace_internal_failing_queries(PG_FUNCTION_ARGS)
         HeapTuple tuple;
         ErrorTrackEntry *entry = &snapshot[funcctx->call_cntr];
         char sqlstate_str[6];
+        MemoryContext oldcxt;
 
         values[0] = UInt64GetDatum(entry->fingerprint);
 
         /* Format SQLSTATE as 5-char string (e.g., "23505") */
         snprintf(sqlstate_str, sizeof(sqlstate_str), "%05u", entry->sqlstate);
-        values[1] = CStringGetDatum(sqlstate_str);
+
+        /* Convert text field in proper memory context */
+        oldcxt = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+        values[1] = PointerGetDatum(cstring_to_text(sqlstate_str));
+        MemoryContextSwitchTo(oldcxt);
 
         values[2] = UInt64GetDatum(entry->error_count);
         values[3] = TimestampTzGetDatum(entry->last_error_at);
@@ -567,6 +575,7 @@ PGDLLEXPORT Datum pgtrace_internal_audit_events(PG_FUNCTION_ARGS)
         HeapTuple tuple;
         AuditEvent *entry = &snapshot[funcctx->call_cntr];
         char op_type_str[32];
+        MemoryContext oldcxt;
 
         values[0] = UInt64GetDatum(entry->fingerprint);
 
@@ -592,9 +601,13 @@ PGDLLEXPORT Datum pgtrace_internal_audit_events(PG_FUNCTION_ARGS)
             snprintf(op_type_str, sizeof(op_type_str), "UNKNOWN");
         }
 
-        values[1] = CStringGetDatum(op_type_str);
-        values[2] = CStringGetDatum(entry->user);
-        values[3] = CStringGetDatum(entry->database);
+        /* Convert text fields in proper memory context */
+        oldcxt = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+        values[1] = PointerGetDatum(cstring_to_text(op_type_str));
+        values[2] = PointerGetDatum(cstring_to_text(entry->user));
+        values[3] = PointerGetDatum(cstring_to_text(entry->database));
+        MemoryContextSwitchTo(oldcxt);
+
         values[4] = Int64GetDatum(entry->rows_affected);
         values[5] = Float8GetDatum(entry->duration_ms);
         values[6] = TimestampTzGetDatum(entry->timestamp);
